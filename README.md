@@ -1,6 +1,6 @@
 # Still
 
-Still is a finite, reading-first social showcase built with Next.js, Convex, and Clerk. Visitors read a public Feed and public Member Profiles; authenticated Members publish short text Posts, Like Posts, and delete their own Posts. New Posts, deletions, and Like counts update live across browser sessions, which is the point of the demonstration.
+Still is a finite, reading-first social showcase built with Next.js, Convex, and Clerk. Visitors read a public Feed, Member Profiles, and bounded Conversations; authenticated Members publish short text Posts and Replies, Like, Repost, Quote, and delete their own authored Posts. Activity and relationship counts update live across browser sessions, which is the point of the demonstration.
 
 Preview: [still-virid.vercel.app](https://still-virid.vercel.app)
 
@@ -12,14 +12,17 @@ The canonical product language lives in [CONTEXT.md](./CONTEXT.md). The implemen
 - Clerk sign-in; authenticated Members publish 1–280 character plain-text Posts through an accessible composer with a live character counter
 - Optimistic Like/unlike with rollback feedback, one Like per Member and Post, and transactionally maintained counts
 - Author-only Post deletion with pessimistic pending feedback and transactional Like cleanup
+- Flat, bounded Conversations with stable Reply links, direct Reply counts, contextual Reply composition, and structural Tombstones
+- Unique reversible Reposts whose engagement resolves to the ultimate authored source
+- Quote Posts with independently authored commentary and one shallow live reference preview that becomes unavailable without leaking deleted content
 - Public, read-only Member Profiles at `/members/[memberId]` with the Member's projected Clerk identity and Posts
 - Reactive updates across browser sessions without refresh, through Convex subscriptions
 - Precise tagged expected failures (unauthenticated, invalid content, forbidden, not found) handled exhaustively with inline retry paths
 - Responsive three-, two-, and one-column Still shell, semantic landmarks, keyboard operation, visible focus, reduced-motion support, and 44px touch targets
 
-## Planned extension—not yet implemented
+## Relational Post release status
 
-The agreed next extension adds Replies, flat bounded Conversations, Quote Posts with shallow live previews, and unique reversible Reposts. Its complete product, persistence, interaction, migration, and verification contracts are recorded in [GitHub issue #10](https://github.com/hzhuo-star/still/issues/10) and [docs/IMPLEMENTATION.md](./docs/IMPLEMENTATION.md); implementation tickets [#11](https://github.com/hzhuo-star/still/issues/11)–[#16](https://github.com/hzhuo-star/still/issues/16) are dependency-linked and ready for agents. The extension is not yet implemented.
+Replies, flat bounded Conversations, Quote Posts, Reposts, and the contracted relational Post schema are implemented in the current source. Their complete contracts and migration evidence are recorded in [GitHub issue #10](https://github.com/hzhuo-star/still/issues/10), issues [#11](https://github.com/hzhuo-star/still/issues/11)–[#16](https://github.com/hzhuo-star/still/issues/16), and [docs/IMPLEMENTATION.md](./docs/IMPLEMENTATION.md). The public production preview intentionally remains on the earlier release until the remaining independent-session/accessibility certification is complete and fresh production approval is given.
 
 Still deliberately out of scope: following, personalized feeds, media, search, notifications, reporting, blocking, audience controls, moderation tooling, editing, pagination, and the other unchanged exclusions from issue #1.
 

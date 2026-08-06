@@ -131,6 +131,11 @@ function QuoteComposer({
   };
 
   const submit = async () => {
+    if (!targetAvailable) {
+      setState({ _tag: "editing", draft, failure: "target-deleted" });
+      return;
+    }
+
     if (remaining < 0) {
       setState({ _tag: "editing", draft, failure: "too-long" });
       return;
@@ -256,7 +261,7 @@ function QuoteComposer({
             </button>
             <button
               className="min-h-touch cursor-pointer rounded-pill bg-sage px-5 text-sm font-medium text-white hover:bg-sage-hover focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-70"
-              disabled={pending}
+              disabled={pending || !targetAvailable}
               type="submit"
             >
               {pending

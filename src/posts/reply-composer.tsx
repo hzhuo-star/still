@@ -2,9 +2,17 @@
 
 import { SignInButton } from "@clerk/nextjs";
 import { useConvexAuth, useMutation } from "convex/react";
-import { useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import type { AuthoredPostView } from "../../convex/contract/post";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
@@ -14,9 +22,37 @@ type ReplyComposerProps = {
   readonly target: AuthoredPostView;
   /** Whether navigation requested that the textarea receive focus. */
   readonly initiallyOpen: boolean;
+  /** Monotonic request used when an already-current Reply link is activated. */
+  readonly openRequest: number;
   /** Whether the selected target disappeared while this composer was open. */
   readonly targetUnavailable?: boolean;
 };
+
+type ReplyNavigationContextValue = {
+  readonly postId: Id<"posts">;
+  readonly requestOpen: () => void;
+};
+
+const ReplyNavigationContext =
+  createContext<ReplyNavigationContextValue | null>(null);
+
+/** Makes same-URL Reply actions reopen the mounted contextual composer. */
+export function ReplyNavigationProvider({
+  children,
+  postId,
+  requestOpen,
+}: ReplyNavigationContextValue & { readonly children: ReactNode }) {
+  return (
+    <ReplyNavigationContext.Provider value={{ postId, requestOpen }}>
+      {children}
+    </ReplyNavigationContext.Provider>
+  );
+}
+
+/** Returns the current Conversation's local Reply navigation controller. */
+export function useReplyNavigation(): ReplyNavigationContextValue | null {
+  return useContext(ReplyNavigationContext);
+}
 
 type ReplyFailure =
   | PostContent.InvalidPostContentReason
@@ -82,6 +118,7 @@ function SignedOutReplyInvite() {
 function ReplyForm({
   target,
   initiallyOpen,
+  openRequest,
   targetUnavailable = false,
 }: ReplyComposerProps) {
   const [state, setState] = useState<ReplyComposerState>(
@@ -91,6 +128,7 @@ function ReplyForm({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previouslyRequestedOpen = useRef(initiallyOpen);
+  const previousOpenRequest = useRef(openRequest);
   const createReply = useMutation(api.posts.createReply);
   const pending = state._tag === "pending";
   const draft = state._tag === "closed" ? "" : state.draft;
@@ -104,8 +142,10 @@ function ReplyForm({
 
   useEffect(() => {
     const navigationRequestedOpen =
-      initiallyOpen && !previouslyRequestedOpen.current;
+      (initiallyOpen && !previouslyRequestedOpen.current) ||
+      openRequest !== previousOpenRequest.current;
     previouslyRequestedOpen.current = initiallyOpen;
+    previousOpenRequest.current = openRequest;
 
     if (navigationRequestedOpen) {
       setState((current) =>
@@ -114,9 +154,13 @@ function ReplyForm({
           : current,
       );
     }
-  }, [initiallyOpen]);
+  }, [initiallyOpen, openRequest]);
 
   if (state._tag === "closed") {
+    if (targetUnavailable) {
+      return null;
+    }
+
     return (
       <button
         className="min-h-touch cursor-pointer rounded-pill border border-line bg-surface px-4 text-sm font-medium text-ink hover:border-sage focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2"
@@ -131,6 +175,11 @@ function ReplyForm({
   }
 
   const submit = async () => {
+    if (targetUnavailable) {
+      setState({ _tag: "editing", draft, failure: "target-deleted" });
+      return;
+    }
+
     const parsed = PostContent.parse(draft);
     if (parsed._tag === "err") {
       setState({
@@ -249,7 +298,7 @@ function ReplyForm({
           </button>
           <button
             className="min-h-touch cursor-pointer rounded-pill bg-sage px-5 text-sm font-medium text-white hover:bg-sage-hover focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-70"
-            disabled={pending}
+            disabled={pending || targetUnavailable}
             type="submit"
           >
             {pending ? "Publishing…" : "Reply"}

@@ -5,6 +5,7 @@ import { useConvexAuth } from "convex/react";
 import Link from "next/link";
 
 import type { Id } from "../../convex/_generated/dataModel";
+import { useReplyNavigation } from "@/posts/reply-composer";
 
 type ReplyActionProps = {
   /** The active authored Post that should receive the Reply. */
@@ -26,6 +27,7 @@ function describeReplyCount(count: number): string {
  */
 export function ReplyAction({ postId, activeReplyCount }: ReplyActionProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const navigation = useReplyNavigation();
   const label = `Reply · ${activeReplyCount}`;
 
   if (isLoading) {
@@ -55,6 +57,11 @@ export function ReplyAction({ postId, activeReplyCount }: ReplyActionProps) {
       aria-label={`Reply to this Post. ${describeReplyCount(activeReplyCount)}.`}
       className={controlClassName}
       href={`/posts/${postId}?compose=reply`}
+      onClick={() => {
+        if (navigation?.postId === postId) {
+          navigation.requestOpen();
+        }
+      }}
     >
       {label}
     </Link>
