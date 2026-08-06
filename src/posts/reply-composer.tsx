@@ -153,6 +153,7 @@ function ReplyForm({
           ? { _tag: "editing", draft: "", failure: null }
           : current,
       );
+      textareaRef.current?.focus();
     }
   }, [initiallyOpen, openRequest]);
 
