@@ -22,7 +22,7 @@ The canonical product language lives in [CONTEXT.md](./CONTEXT.md). The implemen
 
 ## Relational Post release status
 
-Replies, flat bounded Conversations, Quote Posts, Reposts, and the contracted relational Post schema are implemented in the current source. Their complete contracts and migration evidence are recorded in [GitHub issue #10](https://github.com/hzhuo-star/still/issues/10), issues [#11](https://github.com/hzhuo-star/still/issues/11)–[#16](https://github.com/hzhuo-star/still/issues/16), and [docs/IMPLEMENTATION.md](./docs/IMPLEMENTATION.md). The public production preview intentionally remains on the earlier release until the remaining independent-session/accessibility certification is complete and fresh production approval is given.
+Replies, flat bounded Conversations, Quote Posts, Reposts, and the contracted relational Post schema are implemented and deployed to the public production preview. Their complete contracts, migration evidence, and remaining independent-session/accessibility certification work are recorded in [GitHub issue #10](https://github.com/hzhuo-star/still/issues/10), issues [#11](https://github.com/hzhuo-star/still/issues/11)–[#16](https://github.com/hzhuo-star/still/issues/16), and [docs/IMPLEMENTATION.md](./docs/IMPLEMENTATION.md).
 
 Still deliberately out of scope: following, personalized feeds, media, search, notifications, reporting, blocking, audience controls, moderation tooling, editing, pagination, and the other unchanged exclusions from issue #1.
 

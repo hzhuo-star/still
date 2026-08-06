@@ -31,6 +31,14 @@ After contraction, an inline deployment assertion reported 2 total Posts, 0 miss
 
 The original development snapshot was restored through the same expand→backfill→contract sequence because it also contained two legacy Posts. Its final deployment contains the original 2 Posts, 1 Member, and 0 Likes, with 0 legacy rows. A canonical hash of Post IDs, creation times, authors, content, and Like counts matched before and after restoration: `c1ab498496ea421088d76aa4607d84dd1ba460099597ddcaac0534ceba082cdd`.
 
+## Production promotion
+
+Fresh issue #16 approval authorized production promotion on 2026-08-06. A new production snapshot was exported at timestamp `1786009278631343416` before any write or schema change. Expansion commit `451d343` deployed to `valiant-wolf-608`, and `migrations:backfillLegacyPosts` processed exactly two Posts in one batch at `2026-08-06T09:43:31.958Z`. Its second invocation returned `Migration already done` with the same start/finish timestamps and processed count.
+
+Post-backfill assertions returned 2 Posts, 1 Like, 1 Member, zero legacy rows, and zero malformed active Standalone Posts. Canonical hashes matched before and after for normalized immutable Post fields (`da991314f2e7b5b28c4c1b3f05998626453c9e33c9648dcb00ac845c4f637e09`), Likes (`cef9185fdb3dcb8b5c5429af7fd5077c4a58b5744a506c41f3d5de614c7b8754`), and Members (`ed5d9010785da93dfaa328a9704767143745e90f5b8c641f31b6440e8a7dde10`). The Post hash normalizes integral Like counts because snapshot JSON serializes them as `0.0`/`1.0` while the live CLI serializes the same values as `0`/`1`.
+
+Contracted commit `9a2e6f5` then passed production schema validation and unmounted the migrations component. GitHub main and Vercel Production deployment `5777168918` completed successfully. Production status, Feed, Profile, Conversation, and zero-legacy checks passed; the public Feed, Profile, and Conversation routes returned HTTP 200; and a browser smoke check rendered relational controls and focused contextual Reply composition with zero console errors. No rollback was required. The local sensitive snapshot and isolated expansion worktree were permanently deleted after verification and are not recoverable.
+
 ## Approved production procedure
 
 Do not execute this section without fresh issue #16 approval and a new deployment-guard announcement before every command.
