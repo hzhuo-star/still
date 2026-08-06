@@ -49,7 +49,7 @@ export function RemoveRepostButton({ repostId }: RemoveRepostButtonProps) {
   return (
     <>
       <button
-        className="flex min-h-touch cursor-pointer items-center bg-transparent p-0 text-sm text-muted transition-colors ease-still hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-default disabled:text-muted"
+        className="flex min-h-touch min-w-touch cursor-pointer items-center justify-center bg-transparent p-0 text-sm text-muted transition-colors ease-still hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-default disabled:text-muted"
         disabled={pending}
         onClick={() => {
           void onRemove();

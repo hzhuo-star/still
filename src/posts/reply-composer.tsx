@@ -249,7 +249,7 @@ function ReplyForm({
       <textarea
         aria-busy={pending}
         aria-describedby={`reply-counter-${target.postId}`}
-        className="min-h-24 w-full resize-y border-0 bg-transparent font-reading text-reading text-ink placeholder:text-muted focus-visible:outline-none"
+        className="min-h-24 w-full resize-y border-0 bg-transparent font-reading text-reading text-ink placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         id={`reply-draft-${target.postId}`}
         onChange={(event) => {
           if (state._tag === "editing") {

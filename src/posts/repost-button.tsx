@@ -14,7 +14,7 @@ type RepostButtonProps = {
 };
 
 const buttonClassName =
-  "flex min-h-touch cursor-pointer items-center gap-1 bg-transparent p-0 text-sm transition-colors ease-still focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-default";
+  "flex min-h-touch min-w-touch cursor-pointer items-center justify-center gap-1 bg-transparent p-0 text-sm transition-colors ease-still focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-default";
 
 function describeReposts(post: AuthoredPostView): string {
   return `${post.activeRepostCount} ${post.activeRepostCount === 1 ? "repost" : "reposts"}`;

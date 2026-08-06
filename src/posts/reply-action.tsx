@@ -15,7 +15,7 @@ type ReplyActionProps = {
 };
 
 const controlClassName =
-  "flex min-h-touch items-center bg-transparent p-0 text-sm text-muted no-underline transition-colors ease-still hover:text-sage focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+  "flex min-h-touch min-w-touch items-center justify-center bg-transparent p-0 text-sm text-muted no-underline transition-colors ease-still hover:text-sage focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
 
 function describeReplyCount(count: number): string {
   return `${count} ${count === 1 ? "reply" : "replies"}`;

@@ -1,7 +1,7 @@
 "use client";
 
 /** Renders a recoverable route failure without exposing internal details. */
-export default function ErrorPage({ reset }: { readonly reset: () => void }) {
+export default function ErrorPage({ retry }: { readonly retry: () => void }) {
   return (
     <main className="mx-auto flex min-h-screen max-w-feed items-center px-5">
       <section
@@ -18,8 +18,8 @@ export default function ErrorPage({ reset }: { readonly reset: () => void }) {
           The preview connection may be temporarily unavailable.
         </p>
         <button
-          className="mt-5 min-h-touch cursor-pointer rounded-pill bg-sage px-4 text-sm font-medium text-white hover:bg-sage-hover"
-          onClick={reset}
+          className="mt-5 min-h-touch min-w-touch cursor-pointer rounded-pill bg-sage px-4 text-sm font-medium text-white hover:bg-sage-hover focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          onClick={retry}
           type="button"
         >
           Try again

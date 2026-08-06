@@ -31,7 +31,12 @@ function PostAuthor({ post }: { readonly post: AuthoredPostView }) {
 
   return (
     <div className="flex items-center gap-3">
-      <Link aria-hidden="true" href={profileHref} tabIndex={-1}>
+      <Link
+        aria-hidden="true"
+        className="flex min-h-touch min-w-touch items-center justify-center"
+        href={profileHref}
+        tabIndex={-1}
+      >
         <MemberAvatar
           avatarUrl={post.author.avatarUrl}
           displayName={post.author.displayName}
@@ -40,7 +45,7 @@ function PostAuthor({ post }: { readonly post: AuthoredPostView }) {
       </Link>
       <div className="min-w-0">
         <Link
-          className="block truncate text-sm font-medium text-ink no-underline hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className="inline-flex min-h-touch min-w-touch items-center truncate text-sm font-medium text-ink no-underline hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           href={profileHref}
         >
           {post.author.displayName}
@@ -80,10 +85,10 @@ function AuthoredPost({
       ) : null}
 
       <Link
-        className="block text-inherit no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        className="block min-h-touch text-inherit no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         href={`/posts/${post.postId}`}
       >
-        <p className="mt-3 font-reading text-reading whitespace-pre-wrap text-ink">
+        <p className="mt-3 font-reading text-reading whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">
           {post.content}
         </p>
       </Link>
@@ -116,7 +121,7 @@ function Repost({ post }: { readonly post: RepostPostView }) {
     <>
       <p className="mb-3 text-meta text-muted">
         <Link
-          className="font-medium text-ink no-underline hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className="inline-flex min-h-touch min-w-touch items-center font-medium text-ink no-underline hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           href={reposterHref}
         >
           {post.author.displayName}
