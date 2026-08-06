@@ -10,6 +10,8 @@ import type {
 import { MemberAvatar } from "@/members/member-avatar";
 import { DeleteButton } from "@/posts/delete-button";
 import { LikeButton } from "@/posts/like-button";
+import { QuoteAction } from "@/posts/quote-action";
+import { QuotedPostPreview } from "@/posts/quoted-post-preview";
 import { RemoveRepostButton } from "@/posts/remove-repost-button";
 import { ReplyAction } from "@/posts/reply-action";
 import { RepostButton } from "@/posts/repost-button";
@@ -86,6 +88,10 @@ function AuthoredPost({
         </p>
       </Link>
 
+      {post.kind === "quote" ? (
+        <QuotedPostPreview reference={post.reference} />
+      ) : null}
+
       <footer className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
         <ReplyAction
           activeReplyCount={post.activeReplyCount}
@@ -93,6 +99,7 @@ function AuthoredPost({
         />
         <LikeButton post={post} />
         <RepostButton post={post} />
+        <QuoteAction post={post} />
         {showDelete && post.viewerCanDelete ? (
           <DeleteButton postId={post.postId} />
         ) : null}

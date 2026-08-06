@@ -3,6 +3,8 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
   createPostOutcomeValidator,
+  createQuoteArgsValidator,
+  createQuoteOutcomeValidator,
   createReplyArgsValidator,
   createReplyOutcomeValidator,
   getConversationArgsValidator,
@@ -48,6 +50,14 @@ export const createReply = mutation({
   returns: createReplyOutcomeValidator,
   handler: async (ctx, args) =>
     await Posts.createReply(ctx, args.parentPostId, args.content),
+});
+
+/** Publish Quote commentary, or Repost when its commentary is blank. */
+export const createQuote = mutation({
+  args: createQuoteArgsValidator.fields,
+  returns: createQuoteOutcomeValidator,
+  handler: async (ctx, args) =>
+    await Posts.createQuote(ctx, args.targetPostId, args.commentary),
 });
 
 /** Resolve a stable Post URL into one bounded, flat public Conversation. */

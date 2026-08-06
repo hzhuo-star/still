@@ -56,6 +56,43 @@ export const replyParentViewValidator = v.union(
 /** A shallow immediate-parent label for a Reply in a flat Conversation. */
 export type ReplyParentView = Readonly<Infer<typeof replyParentViewValidator>>;
 
+const quoteTargetPreviewFields = {
+  /** The directly referenced Post's canonical identifier. */
+  postId: v.id("posts"),
+  /** The referenced Post's current plain-text content. */
+  content: v.string(),
+  /** The referenced Post's original publication time. */
+  publishedAt: v.number(),
+  /** The referenced Post author's projected public identity. */
+  author: memberProfileValidator,
+} as const;
+
+/** One available shallow Quote target without recursive relationships. */
+export const quoteTargetPreviewValidator = v.union(
+  v.object({ kind: v.literal("standalone"), ...quoteTargetPreviewFields }),
+  v.object({ kind: v.literal("reply"), ...quoteTargetPreviewFields }),
+  v.object({ kind: v.literal("quote"), ...quoteTargetPreviewFields }),
+);
+
+/** One available shallow Quote target without recursive relationships. */
+export type QuoteTargetPreview = Readonly<
+  Infer<typeof quoteTargetPreviewValidator>
+>;
+
+/** The live shallow Quote target or its unavailable projection. */
+export const quoteReferenceViewValidator = v.union(
+  v.object({
+    _tag: v.literal("available"),
+    post: quoteTargetPreviewValidator,
+  }),
+  v.object({ _tag: v.literal("unavailable") }),
+);
+
+/** The live shallow Quote target or its unavailable projection. */
+export type QuoteReferenceView = Readonly<
+  Infer<typeof quoteReferenceViewValidator>
+>;
+
 const standalonePostViewValidator = v.object({
   kind: v.literal("standalone"),
   ...postViewFields,
@@ -73,6 +110,7 @@ const quotePostViewValidator = v.object({
   kind: v.literal("quote"),
   ...postViewFields,
   referencedPostId: v.id("posts"),
+  reference: quoteReferenceViewValidator,
 });
 
 /** The complete immutable display model for one active Standalone Post. */
@@ -224,6 +262,40 @@ export const createReplyOutcomeValidator = v.union(
 /** The outcome of publishing a Reply to an eligible Post. */
 export type CreateReplyOutcome = Readonly<
   Infer<typeof createReplyOutcomeValidator>
+>;
+
+/** Arguments accepted when publishing a Quote Post or blank Repost. */
+export const createQuoteArgsValidator = v.object({
+  targetPostId: v.id("posts"),
+  commentary: v.string(),
+});
+
+/** The outcome of publishing Quote commentary or delegating blank text. */
+export const createQuoteOutcomeValidator = v.union(
+  v.object({
+    _tag: v.literal("ok"),
+    kind: v.literal("quote"),
+    postId: v.id("posts"),
+  }),
+  v.object({
+    _tag: v.literal("ok"),
+    kind: v.literal("repost"),
+    postId: v.id("posts"),
+    activeRepostCount: v.number(),
+  }),
+  v.object({ _tag: v.literal("unauthenticated") }),
+  v.object({ _tag: v.literal("already-reposted") }),
+  v.object({
+    _tag: v.literal("invalid-content"),
+    reason: v.literal("too-long"),
+  }),
+  v.object({ _tag: v.literal("target-not-found") }),
+  v.object({ _tag: v.literal("target-deleted") }),
+);
+
+/** The outcome of publishing Quote commentary or delegating blank text. */
+export type CreateQuoteOutcome = Readonly<
+  Infer<typeof createQuoteOutcomeValidator>
 >;
 
 /** A bounded, flat Conversation resolved from any stable authored Post URL. */

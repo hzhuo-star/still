@@ -69,6 +69,23 @@ async function publishReply(
   return outcome.postId;
 }
 
+async function publishQuote(
+  backend: TestConvex<typeof schema>,
+  identity: { subject: string; name?: string },
+  targetPostId: Id<"posts">,
+  commentary: string,
+): Promise<Id<"posts">> {
+  const outcome = await backend
+    .withIdentity(identity)
+    .mutation(api.posts.createQuote, { targetPostId, commentary });
+
+  if (outcome._tag !== "ok" || outcome.kind !== "quote") {
+    throw new Error(`Expected a published Quote Post, got ${outcome._tag}`);
+  }
+
+  return outcome.postId;
+}
+
 async function ensureMember(
   backend: TestConvex<typeof schema>,
   identity: { subject: string; name?: string },
@@ -369,6 +386,205 @@ describe("Posts.createReply", () => {
         _tag: "active",
         post: { postId: quotePostId, kind: "quote", activeReplyCount: 1 },
       },
+      replies: [{ _tag: "active", post: { postId: replyPostId } }],
+    });
+  });
+});
+
+describe("Posts.createQuote", () => {
+  test("returns precise authentication, content, and target outcomes", async () => {
+    const backend = newBackend();
+    const targetPostId = await publish(backend, aliceIdentity, "Quote target");
+
+    await expect(
+      backend.mutation(api.posts.createQuote, {
+        targetPostId,
+        commentary: "Signed out commentary",
+      }),
+    ).resolves.toEqual({ _tag: "unauthenticated" });
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+        targetPostId,
+        commentary: "a".repeat(281),
+      }),
+    ).resolves.toEqual({ _tag: "invalid-content", reason: "too-long" });
+
+    const missingPostId = await publish(backend, aliceIdentity, "Missing");
+    await backend.run(async (ctx) => await ctx.db.delete(missingPostId));
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+        targetPostId: missingPostId,
+        commentary: "Cannot quote this",
+      }),
+    ).resolves.toEqual({ _tag: "target-not-found" });
+
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.remove, { postId: targetPostId });
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+        targetPostId,
+        commentary: "Cannot quote a tombstone",
+      }),
+    ).resolves.toEqual({ _tag: "target-deleted" });
+  });
+
+  test("publishes repeat Quote Posts with one shallow direct preview", async () => {
+    const backend = newBackend();
+    const rootPostId = await publish(backend, aliceIdentity, "Root source");
+    const replyPostId = await publishReply(
+      backend,
+      benIdentity,
+      rootPostId,
+      "Selected Reply",
+    );
+    const firstQuoteId = await publishQuote(
+      backend,
+      aliceIdentity,
+      replyPostId,
+      "First commentary",
+    );
+    const secondQuoteId = await publishQuote(
+      backend,
+      aliceIdentity,
+      firstQuoteId,
+      "Second commentary",
+    );
+    await publishQuote(
+      backend,
+      aliceIdentity,
+      replyPostId,
+      "Another distinct thought",
+    );
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    const firstQuote = feed.posts.find((post) => post.postId === firstQuoteId);
+    const secondQuote = feed.posts.find(
+      (post) => post.postId === secondQuoteId,
+    );
+
+    expect(firstQuote).toMatchObject({
+      kind: "quote",
+      content: "First commentary",
+      reference: {
+        _tag: "available",
+        post: {
+          postId: replyPostId,
+          kind: "reply",
+          content: "Selected Reply",
+          author: { displayName: "Ben Quiet" },
+        },
+      },
+    });
+    expect(secondQuote).toMatchObject({
+      kind: "quote",
+      reference: {
+        _tag: "available",
+        post: {
+          postId: firstQuoteId,
+          kind: "quote",
+          content: "First commentary",
+        },
+      },
+    });
+    expect(JSON.stringify(secondQuote)).not.toContain("Selected Reply");
+    expect(
+      feed.posts.filter(
+        (post) =>
+          post.kind === "quote" && post.referencedPostId === replyPostId,
+      ),
+    ).toHaveLength(2);
+  });
+
+  test("normalizes Repost targets and delegates blank commentary once", async () => {
+    const backend = newBackend();
+    const sourcePostId = await publish(
+      backend,
+      aliceIdentity,
+      "Ultimate source",
+    );
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    const feed = await backend.query(api.posts.listFeed, {});
+    const wrapper = feed.posts.find((post) => post.kind === "repost");
+    expect(wrapper).toBeDefined();
+    if (wrapper === undefined) {
+      return;
+    }
+
+    const quotePostId = await publishQuote(
+      backend,
+      benIdentity,
+      wrapper.postId,
+      "Normalized commentary",
+    );
+    const storedQuote = await backend.run(async (ctx) =>
+      ctx.db.get("posts", quotePostId),
+    );
+    expect(storedQuote).toMatchObject({
+      kind: "quote",
+      referencedPostId: sourcePostId,
+    });
+
+    const blank = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.createQuote, {
+        targetPostId: wrapper.postId,
+        commentary: "  \n ",
+      });
+    expect(blank).toMatchObject({
+      _tag: "ok",
+      kind: "repost",
+      activeRepostCount: 2,
+    });
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+        targetPostId: sourcePostId,
+        commentary: "",
+      }),
+    ).resolves.toEqual({ _tag: "already-reposted" });
+  });
+
+  test("keeps a Quote Post active when its preview becomes unavailable", async () => {
+    const backend = newBackend();
+    const targetPostId = await publish(backend, aliceIdentity, "Delete target");
+    const quotePostId = await publishQuote(
+      backend,
+      benIdentity,
+      targetPostId,
+      "Independent commentary",
+    );
+    const replyPostId = await publishReply(
+      backend,
+      aliceIdentity,
+      quotePostId,
+      "Reply to Quote Post",
+    );
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.toggleLike, { postId: quotePostId });
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.remove, { postId: targetPostId });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(
+      feed.posts.find((post) => post.postId === quotePostId),
+    ).toMatchObject({
+      kind: "quote",
+      likeCount: 1,
+      activeReplyCount: 1,
+      reference: { _tag: "unavailable" },
+    });
+    expect(JSON.stringify(feed)).not.toContain("Delete target");
+
+    const conversation = await backend.query(api.posts.getConversation, {
+      postId: quotePostId,
+    });
+    expect(conversation).toMatchObject({
+      _tag: "ok",
+      root: { _tag: "active", post: { postId: quotePostId, kind: "quote" } },
       replies: [{ _tag: "active", post: { postId: replyPostId } }],
     });
   });

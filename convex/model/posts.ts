@@ -6,12 +6,14 @@ import {
   FEED_LIMIT,
   type ConversationEntry,
   type CreatePostOutcome,
+  type CreateQuoteOutcome,
   type CreateReplyOutcome,
   type GetConversationOutcome,
   type ListByMemberOutcome,
   type AuthoredPostView,
   type PostList,
   type PostView,
+  type QuoteReferenceView,
   type RemovePostOutcome,
   type ToggleLikeOutcome,
   type ToggleRepostOutcome,
@@ -132,6 +134,7 @@ async function toAuthoredPostView(
       kind: post.kind,
       ...common,
       referencedPostId: post.referencedPostId,
+      reference: await toQuoteReferenceView(ctx, post.referencedPostId),
     };
   }
 
@@ -154,6 +157,43 @@ async function toAuthoredPostView(
     conversationRootId: post.conversationRootId,
     replyingTo,
   };
+}
+
+async function toQuoteReferenceView(
+  ctx: QueryCtx,
+  referencedPostId: Doc<"posts">["_id"],
+): Promise<QuoteReferenceView> {
+  const post = await ctx.db.get("posts", referencedPostId);
+
+  if (
+    post === null ||
+    ("state" in post && post.state === "deleted") ||
+    ("kind" in post && post.kind === "repost")
+  ) {
+    return { _tag: "unavailable" };
+  }
+
+  const authorOutcome = await getProfile(ctx, post.authorId);
+  const author =
+    authorOutcome._tag === "ok"
+      ? authorOutcome.profile
+      : shouldNeverHappen(
+          "Quote target author missing; Member deletion is out of scope",
+        );
+  const common = {
+    postId: post._id,
+    content: post.content,
+    publishedAt: post._creationTime,
+    author,
+  };
+
+  if (!("kind" in post) || post.kind === "standalone") {
+    return { _tag: "available", post: { kind: "standalone", ...common } };
+  }
+  if (post.kind === "reply") {
+    return { _tag: "available", post: { kind: "reply", ...common } };
+  }
+  return { _tag: "available", post: { kind: "quote", ...common } };
 }
 
 async function toActiveParentView(
@@ -257,30 +297,39 @@ async function toBoundedList(
  */
 export async function listFeed(ctx: QueryCtx): Promise<PostList> {
   const viewerId = await currentMemberId(ctx);
-  const [standalonePosts, reposts, legacyPosts] = await Promise.all([
-    ctx.db
-      .query("posts")
-      .withIndex("by_state_and_kind", (q) =>
-        q.eq("state", "active").eq("kind", "standalone"),
-      )
-      .order("desc")
-      .take(FEED_LIMIT + 1),
-    ctx.db
-      .query("posts")
-      .withIndex("by_state_and_kind", (q) =>
-        q.eq("state", "active").eq("kind", "repost"),
-      )
-      .order("desc")
-      .take(FEED_LIMIT + 1),
-    ctx.db
-      .query("posts")
-      .withIndex("by_state_and_kind", (q) =>
-        q.eq("state", undefined).eq("kind", undefined),
-      )
-      .order("desc")
-      .take(FEED_LIMIT + 1),
-  ]);
-  const page = mergeNewest(standalonePosts, reposts, legacyPosts);
+  const [standalonePosts, quotePosts, reposts, legacyPosts] = await Promise.all(
+    [
+      ctx.db
+        .query("posts")
+        .withIndex("by_state_and_kind", (q) =>
+          q.eq("state", "active").eq("kind", "standalone"),
+        )
+        .order("desc")
+        .take(FEED_LIMIT + 1),
+      ctx.db
+        .query("posts")
+        .withIndex("by_state_and_kind", (q) =>
+          q.eq("state", "active").eq("kind", "quote"),
+        )
+        .order("desc")
+        .take(FEED_LIMIT + 1),
+      ctx.db
+        .query("posts")
+        .withIndex("by_state_and_kind", (q) =>
+          q.eq("state", "active").eq("kind", "repost"),
+        )
+        .order("desc")
+        .take(FEED_LIMIT + 1),
+      ctx.db
+        .query("posts")
+        .withIndex("by_state_and_kind", (q) =>
+          q.eq("state", undefined).eq("kind", undefined),
+        )
+        .order("desc")
+        .take(FEED_LIMIT + 1),
+    ],
+  );
+  const page = mergeNewest(standalonePosts, quotePosts, reposts, legacyPosts);
 
   return await toBoundedList(ctx, page, viewerId);
 }
@@ -446,6 +495,113 @@ async function resolveActionTarget(
   }
 
   return { _tag: "ok", post: source };
+}
+
+async function createRepostIfMissing(
+  ctx: MutationCtx,
+  source: EngagementPostRecord,
+  authorId: Doc<"members">["_id"],
+): Promise<
+  | {
+      readonly _tag: "ok";
+      readonly postId: Doc<"posts">["_id"];
+      readonly activeRepostCount: number;
+    }
+  | { readonly _tag: "already-reposted" }
+> {
+  const existing = await ctx.db
+    .query("posts")
+    .withIndex("by_sourcePostId_and_authorId", (q) =>
+      q.eq("sourcePostId", source._id).eq("authorId", authorId),
+    )
+    .unique();
+
+  if (existing !== null) {
+    return { _tag: "already-reposted" };
+  }
+
+  const postId = await ctx.db.insert("posts", {
+    state: "active",
+    kind: "repost",
+    authorId,
+    sourcePostId: source._id,
+  });
+  const activeRepostCount =
+    ("kind" in source ? source.activeRepostCount : 0) + 1;
+
+  if (!("kind" in source)) {
+    await ctx.db.patch("posts", source._id, {
+      state: "active",
+      kind: "standalone",
+      activeReplyCount: 0,
+      activeRepostCount,
+    });
+  } else {
+    await ctx.db.patch("posts", source._id, { activeRepostCount });
+  }
+
+  return { _tag: "ok", postId, activeRepostCount };
+}
+
+/**
+ * Publish Quote commentary or delegate a blank draft to Repost creation.
+ *
+ * @param ctx - The Convex mutation context.
+ * @param targetPostId - The selected Post, normalized through Repost wrappers.
+ * @param commentary - The optional Quote commentary draft.
+ * @returns The created Quote or Repost id, or a precise expected failure.
+ */
+export async function createQuote(
+  ctx: MutationCtx,
+  targetPostId: Doc<"posts">["_id"],
+  commentary: string,
+): Promise<CreateQuoteOutcome> {
+  const member = await ensureCurrent(ctx);
+  if (member._tag === "unauthenticated") {
+    return member;
+  }
+
+  const target = await resolveActionTarget(ctx, targetPostId);
+  if (target._tag === "post-not-found") {
+    return { _tag: "target-not-found" };
+  }
+  if (target._tag === "post-unavailable") {
+    return { _tag: "target-deleted" };
+  }
+
+  if (commentary.trim().length === 0) {
+    const result = await createRepostIfMissing(
+      ctx,
+      target.post,
+      member.memberId,
+    );
+    return result._tag === "already-reposted"
+      ? result
+      : {
+          _tag: "ok",
+          kind: "repost",
+          postId: result.postId,
+          activeRepostCount: result.activeRepostCount,
+        };
+  }
+
+  const parsed = PostContent.parse(commentary);
+  if (parsed._tag === "err") {
+    return { _tag: "invalid-content", reason: "too-long" };
+  }
+
+  const postId = await ctx.db.insert("posts", {
+    state: "active",
+    kind: "quote",
+    authorId: member.memberId,
+    content: parsed.value,
+    likeCount: 0,
+    activeReplyCount: 0,
+    activeRepostCount: 0,
+    referencedPostId: target.post._id,
+  });
+
+  return { _tag: "ok", kind: "quote", postId };
 }
 
 /**
