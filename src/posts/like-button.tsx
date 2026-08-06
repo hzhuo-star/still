@@ -26,7 +26,7 @@ const buttonClassName =
  * visitors see the count and a sign-in path.
  */
 export function LikeButton({ post }: LikeButtonProps) {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated, isLoading } = useConvexAuth();
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const toggleLike = useMutation(api.posts.toggleLike).withOptimisticUpdate(
@@ -65,6 +65,19 @@ export function LikeButton({ post }: LikeButtonProps) {
 
   const label = post.viewerHasLiked ? "Liked" : "Like";
   const visibleText = `${label} · ${post.likeCount}`;
+
+  if (isLoading) {
+    return (
+      <button
+        aria-label={`${label}, ${describeLikes(post)}`}
+        className={`${buttonClassName} cursor-default text-muted`}
+        disabled
+        type="button"
+      >
+        {visibleText}
+      </button>
+    );
+  }
 
   if (!isAuthenticated) {
     return (

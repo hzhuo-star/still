@@ -46,7 +46,7 @@ export class QueryBoundary extends Component<
           The live connection hit a temporary problem.
         </p>
         <button
-          className="mt-4 min-h-touch cursor-pointer rounded-pill bg-sage px-4 text-sm font-medium text-white transition-colors ease-still hover:bg-sage-hover"
+          className="mt-4 min-h-touch cursor-pointer rounded-pill bg-sage px-4 text-sm font-medium text-white transition-colors ease-still hover:bg-sage-hover focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
           onClick={() => {
             this.setState({ failed: false });
           }}

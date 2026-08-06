@@ -1,5 +1,5 @@
 import type { UserIdentity } from "convex/server";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import {
@@ -11,7 +11,7 @@ import {
 import { shouldNeverHappen } from "./result";
 
 /** The public projection of a Member shown on Profiles and Posts. */
-const memberProfileValidator = v.object({
+export const memberProfileValidator = v.object({
   /** The Member's canonical identifier. */
   memberId: v.id("members"),
   /** The display name projected from Clerk. */
@@ -19,6 +19,34 @@ const memberProfileValidator = v.object({
   /** The avatar URL projected from Clerk, when one exists. */
   avatarUrl: v.optional(v.string()),
 });
+
+/** The public projection of a Member shown on Profiles and Posts. */
+export type MemberProfile = Infer<typeof memberProfileValidator>;
+
+/**
+ * Project a Member document into its public Profile shape, omitting the
+ * avatar field entirely when none is stored.
+ *
+ * @param member - The Member document to project.
+ * @returns The Member's public Profile projection.
+ */
+export function toMemberProfile(member: Doc<"members">): MemberProfile {
+  return {
+    memberId: member._id,
+    displayName: member.displayName,
+    ...(member.avatarUrl === undefined ? {} : { avatarUrl: member.avatarUrl }),
+  };
+}
+
+function findByExternalId(
+  ctx: QueryCtx,
+  externalId: string,
+): Promise<Doc<"members"> | null> {
+  return ctx.db
+    .query("members")
+    .withIndex("by_externalId", (q) => q.eq("externalId", externalId))
+    .unique();
+}
 
 /** The identity fields Still projects from a verified Clerk identity. */
 type IdentityProjection = {
@@ -51,12 +79,7 @@ export async function currentMember(
     return null;
   }
 
-  return await ctx.db
-    .query("members")
-    .withIndex("by_externalId", (q) =>
-      q.eq("externalId", identity.tokenIdentifier),
-    )
-    .unique();
+  return await findByExternalId(ctx, identity.tokenIdentifier);
 }
 
 /**
@@ -77,12 +100,7 @@ export async function ensureMember(
   }
 
   const projection = projectIdentity(identity);
-  const existing = await ctx.db
-    .query("members")
-    .withIndex("by_externalId", (q) =>
-      q.eq("externalId", identity.tokenIdentifier),
-    )
-    .unique();
+  const existing = await findByExternalId(ctx, identity.tokenIdentifier);
 
   const memberId =
     existing === null
@@ -151,15 +169,6 @@ export const getProfile = query({
       return { _tag: "member-not-found" as const };
     }
 
-    return {
-      _tag: "ok" as const,
-      profile: {
-        memberId: member._id,
-        displayName: member.displayName,
-        ...(member.avatarUrl === undefined
-          ? {}
-          : { avatarUrl: member.avatarUrl }),
-      },
-    };
+    return { _tag: "ok" as const, profile: toMemberProfile(member) };
   },
 });

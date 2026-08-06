@@ -2,12 +2,17 @@ import { v, type Infer } from "convex/values";
 
 import type { Doc } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
-import { currentMember, ensureMember } from "./members";
+import {
+  currentMember,
+  ensureMember,
+  memberProfileValidator,
+  toMemberProfile,
+} from "./members";
 import * as PostContent from "./postContent";
 import { shouldNeverHappen } from "./result";
 
 /** The maximum number of Posts a Feed or Profile renders. */
-const FEED_LIMIT = 50;
+export const FEED_LIMIT = 50;
 
 /** The complete immutable display model for one Post. */
 const postViewValidator = v.object({
@@ -24,11 +29,7 @@ const postViewValidator = v.object({
   /** Whether the current viewer may delete the Post. */
   viewerCanDelete: v.boolean(),
   /** The Post author's projected public identity. */
-  author: v.object({
-    memberId: v.id("members"),
-    displayName: v.string(),
-    avatarUrl: v.optional(v.string()),
-  }),
+  author: memberProfileValidator,
 });
 
 /** The complete immutable display model for one Post. */
@@ -69,13 +70,7 @@ async function toPostView(
     likeCount: post.likeCount,
     viewerHasLiked: like !== null,
     viewerCanDelete: viewer !== null && viewer._id === post.authorId,
-    author: {
-      memberId: author._id,
-      displayName: author.displayName,
-      ...(author.avatarUrl === undefined
-        ? {}
-        : { avatarUrl: author.avatarUrl }),
-    },
+    author: toMemberProfile(author),
   };
 }
 

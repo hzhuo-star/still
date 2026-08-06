@@ -8,7 +8,8 @@ import { api } from "../../convex/_generated/api";
 import * as PostContent from "../../convex/postContent";
 import { casesHandled } from "../../convex/result";
 
-type ComposerFailure = "empty" | "too-long" | "unauthenticated" | "connection";
+type ComposerFailure =
+  PostContent.InvalidPostContentReason | "unauthenticated" | "connection";
 
 type ComposerState =
   | { readonly _tag: "idle" }
@@ -61,7 +62,7 @@ function ComposerForm() {
     setState({ _tag: "pending" });
 
     try {
-      const outcome = await createPost({ content: draft });
+      const outcome = await createPost({ content: parsed.value });
 
       switch (outcome._tag) {
         case "ok":

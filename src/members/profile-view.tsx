@@ -5,8 +5,7 @@ import Link from "next/link";
 
 import { api } from "../../convex/_generated/api";
 import { MemberAvatar } from "@/members/member-avatar";
-import { ListEndingNotice } from "@/posts/list-ending";
-import { PostCard } from "@/posts/post-card";
+import { PostList } from "@/posts/post-list";
 import { PostListSkeleton } from "@/posts/post-list-skeleton";
 
 function ProfileSkeleton() {
@@ -33,7 +32,7 @@ function ProfileNotFound() {
         The Profile may have been removed, or the address may be mistyped.
       </p>
       <Link
-        className="mt-6 inline-flex min-h-touch items-center text-sm font-medium text-sage no-underline hover:underline"
+        className="mt-6 inline-flex min-h-touch items-center text-sm font-medium text-sage no-underline hover:underline focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         href="/"
       >
         Back to the Feed
@@ -72,18 +71,7 @@ function MemberPosts({
     );
   }
 
-  return (
-    <>
-      <ul className="m-0 list-none p-0">
-        {outcome.posts.map((post) => (
-          <li key={post.postId}>
-            <PostCard post={post} />
-          </li>
-        ))}
-      </ul>
-      <ListEndingNotice ending={outcome.ending} />
-    </>
-  );
+  return <PostList ending={outcome.ending} posts={outcome.posts} />;
 }
 
 type ProfileViewProps = {

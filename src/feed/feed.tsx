@@ -4,23 +4,26 @@ import { useQuery } from "convex/react";
 
 import { api } from "../../convex/_generated/api";
 import { ListEndingNotice } from "@/posts/list-ending";
-import { PostCard } from "@/posts/post-card";
+import { PostList } from "@/posts/post-list";
 import { PostListSkeleton } from "@/posts/post-list-skeleton";
 
 function EmptyFeed() {
   return (
-    <section
-      aria-labelledby="empty-feed"
-      className="border-t border-line py-10"
-    >
-      <h2 className="font-reading text-2xl text-ink" id="empty-feed">
-        The Feed is ready for its first Post.
-      </h2>
-      <p className="mt-3 text-body text-muted">
-        New Posts appear here live, without a refresh. Sign in to publish the
-        first thought.
-      </p>
-    </section>
+    <>
+      <section
+        aria-labelledby="empty-feed"
+        className="border-t border-line py-10"
+      >
+        <h2 className="font-reading text-2xl text-ink" id="empty-feed">
+          The Feed is ready for its first Post.
+        </h2>
+        <p className="mt-3 text-body text-muted">
+          New Posts appear here live, without a refresh. Sign in to publish the
+          first thought.
+        </p>
+      </section>
+      <ListEndingNotice ending="complete" />
+    </>
   );
 }
 
@@ -39,16 +42,5 @@ export function Feed() {
     return <EmptyFeed />;
   }
 
-  return (
-    <>
-      <ul className="m-0 list-none p-0">
-        {feed.posts.map((post) => (
-          <li key={post.postId}>
-            <PostCard post={post} />
-          </li>
-        ))}
-      </ul>
-      <ListEndingNotice ending={feed.ending} />
-    </>
-  );
+  return <PostList ending={feed.ending} posts={feed.posts} />;
 }

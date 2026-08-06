@@ -1,4 +1,4 @@
-import type { ListEnding } from "../../convex/posts";
+import { FEED_LIMIT, type ListEnding } from "../../convex/posts";
 
 type ListEndingNoticeProps = {
   /** Whether the list contains every available Post or only the newest 50. */
@@ -15,7 +15,7 @@ export function ListEndingNotice({ ending }: ListEndingNoticeProps) {
     <p className="border-t border-line py-8 text-center text-sm text-muted">
       {ending === "complete"
         ? "You’re caught up."
-        : "Showing the latest 50 posts."}
+        : `Showing the latest ${FEED_LIMIT} posts.`}
     </p>
   );
 }
