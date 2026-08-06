@@ -14,16 +14,22 @@ export const listEndingValidator = v.union(
 /** Whether a Post list contains every available Post or only the newest 50. */
 export type ListEnding = Infer<typeof listEndingValidator>;
 
-/** The complete immutable display model for one Post. */
+/** The complete immutable display model for one active Standalone Post. */
 export const postViewValidator = v.object({
   /** The Post's canonical identifier. */
   postId: v.id("posts"),
+  /** The explicit Post kind used as the relational display seam. */
+  kind: v.literal("standalone"),
   /** Parsed plain-text Post content with internal line breaks preserved. */
   content: v.string(),
   /** Server creation time in milliseconds since the Unix epoch. */
   publishedAt: v.number(),
   /** The Post's current Like count. */
   likeCount: v.number(),
+  /** The number of active direct Replies to this Post. */
+  activeReplyCount: v.number(),
+  /** The number of active Reposts of this Post. */
+  activeRepostCount: v.number(),
   /** Whether the current viewer has Liked the Post. */
   viewerHasLiked: v.boolean(),
   /** Whether the current viewer may delete the Post. */
@@ -32,7 +38,7 @@ export const postViewValidator = v.object({
   author: memberProfileValidator,
 });
 
-/** The complete immutable display model for one Post. */
+/** The complete immutable display model for one active Standalone Post. */
 export type PostView = Readonly<Infer<typeof postViewValidator>>;
 
 /** A bounded collection of complete Post display models. */

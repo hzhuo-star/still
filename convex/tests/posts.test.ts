@@ -1,15 +1,19 @@
 /// <reference types="vite/client" />
+import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest, type TestConvex } from "convex-test";
+import type { WithoutSystemFields } from "convex/server";
 import { describe, expect, test } from "vitest";
 
-import { api } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import { api, internal } from "../_generated/api";
+import type { DataModel, Id } from "../_generated/dataModel";
 import schema from "../schema";
 
 const modules = import.meta.glob("../**/*.ts");
 
 function newBackend(): TestConvex<typeof schema> {
-  return convexTest(schema, modules);
+  const backend = convexTest(schema, modules);
+  migrationsTest.register(backend);
+  return backend;
 }
 
 const aliceIdentity = {
@@ -37,6 +41,21 @@ async function publish(
   }
 
   return outcome.postId;
+}
+
+async function ensureMember(
+  backend: TestConvex<typeof schema>,
+  identity: { subject: string; name?: string },
+): Promise<Id<"members">> {
+  const outcome = await backend
+    .withIdentity(identity)
+    .mutation(api.members.ensureCurrent, {});
+
+  if (outcome._tag !== "ok") {
+    throw new Error(`Expected a projected Member, got ${outcome._tag}`);
+  }
+
+  return outcome.memberId;
 }
 
 describe("Posts.create", () => {
@@ -97,14 +116,27 @@ describe("Posts.create", () => {
     const post = feed.posts[0];
     expect(post).toMatchObject({
       postId,
+      kind: "standalone",
       content: "A first thought.",
       likeCount: 0,
+      activeReplyCount: 0,
+      activeRepostCount: 0,
       viewerHasLiked: false,
       viewerCanDelete: true,
     });
     expect(post?.author.displayName).toBe("Alice Reader");
     expect(post?.author.avatarUrl).toBe("https://img.clerk.com/alice.png");
     expect(typeof post?.publishedAt).toBe("number");
+
+    const storedPost = await backend.run(async (ctx) =>
+      ctx.db.get("posts", postId),
+    );
+    expect(storedPost).toMatchObject({
+      state: "active",
+      kind: "standalone",
+      activeReplyCount: 0,
+      activeRepostCount: 0,
+    });
   });
 });
 
@@ -136,6 +168,92 @@ describe("Posts.listFeed", () => {
     ).toBe(true);
   });
 
+  test("interprets legacy rows as active Standalone Posts", async () => {
+    const backend = newBackend();
+    const memberId = await ensureMember(backend, aliceIdentity);
+    const legacyPostId = await backend.run(async (ctx) =>
+      ctx.db.insert("posts", {
+        authorId: memberId,
+        content: "Written before relational Posts.",
+        likeCount: 0,
+      }),
+    );
+
+    const feed = await backend.query(api.posts.listFeed, {});
+
+    expect(feed.posts).toEqual([
+      expect.objectContaining({
+        postId: legacyPostId,
+        kind: "standalone",
+        content: "Written before relational Posts.",
+        activeReplyCount: 0,
+        activeRepostCount: 0,
+      }),
+    ]);
+
+    const profile = await backend.query(api.posts.listByMember, {
+      memberId,
+    });
+    expect(profile).toMatchObject({
+      _tag: "ok",
+      posts: [expect.objectContaining({ postId: legacyPostId })],
+    });
+  });
+
+  test("selects eligible Standalone Posts before applying the Feed limit", async () => {
+    const backend = newBackend();
+    const memberId = await ensureMember(backend, aliceIdentity);
+    const sourcePostId = await publish(
+      backend,
+      aliceIdentity,
+      "The Feed-visible source.",
+    );
+
+    await backend.run(async (ctx) => {
+      for (let index = 1; index <= 51; index += 1) {
+        await ctx.db.insert("posts", {
+          state: "active",
+          kind: "reply",
+          authorId: memberId,
+          content: `Reply ${index}`,
+          likeCount: 0,
+          activeReplyCount: 0,
+          activeRepostCount: 0,
+          parentPostId: sourcePostId,
+          conversationRootId: sourcePostId,
+        });
+      }
+    });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+
+    expect(feed.posts.map((post) => post.postId)).toEqual([sourcePostId]);
+    expect(feed.ending).toBe("complete");
+  });
+
+  test("rejects invalid kind and relationship combinations at persistence", async () => {
+    const backend = newBackend();
+    const memberId = await ensureMember(backend, aliceIdentity);
+
+    // SAFETY: This test intentionally bypasses the generated insert type to
+    // prove the runtime schema rejects a Standalone Post carrying Reply fields.
+    const invalidPost = {
+      state: "active",
+      kind: "standalone",
+      authorId: memberId,
+      content: "Invalid relation.",
+      likeCount: 0,
+      activeReplyCount: 0,
+      activeRepostCount: 0,
+      parentPostId: "not-a-post-id",
+      conversationRootId: "not-a-post-id",
+    } as unknown as WithoutSystemFields<DataModel["posts"]["document"]>;
+
+    await expect(
+      backend.run(async (ctx) => ctx.db.insert("posts", invalidPost)),
+    ).rejects.toThrow();
+  });
+
   test("marks exactly 50 Posts as a complete Feed", async () => {
     const backend = newBackend();
     for (let index = 1; index <= 50; index += 1) {
@@ -160,6 +278,41 @@ describe("Posts.listFeed", () => {
     expect(feed.ending).toBe("truncated");
     expect(feed.posts[0]?.content).toBe("Post 51");
     expect(feed.posts[49]?.content).toBe("Post 2");
+  });
+});
+
+describe("Posts relational migration", () => {
+  test("backfills legacy Posts idempotently without changing public results", async () => {
+    const backend = newBackend();
+    const memberId = await ensureMember(backend, aliceIdentity);
+    const legacyPostId = await backend.run(async (ctx) =>
+      ctx.db.insert("posts", {
+        authorId: memberId,
+        content: "Keep this thought unchanged.",
+        likeCount: 0,
+      }),
+    );
+    const before = await backend.query(api.posts.listFeed, {});
+
+    await backend.mutation(internal.migrations.backfillLegacyPosts, {});
+    await backend.mutation(internal.migrations.backfillLegacyPosts, {
+      reset: true,
+    });
+
+    const storedPost = await backend.run(async (ctx) =>
+      ctx.db.get("posts", legacyPostId),
+    );
+    expect(storedPost).toMatchObject({
+      authorId: memberId,
+      content: "Keep this thought unchanged.",
+      likeCount: 0,
+      state: "active",
+      kind: "standalone",
+      activeReplyCount: 0,
+      activeRepostCount: 0,
+    });
+    const after = await backend.query(api.posts.listFeed, {});
+    expect(after).toEqual(before);
   });
 });
 

@@ -1,6 +1,63 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const legacyStandalonePostValidator = v.object({
+  /** The Member who published the legacy Standalone Post. */
+  authorId: v.id("members"),
+  /** Parsed plain-text Post content (1–280 trimmed characters). */
+  content: v.string(),
+  /** Denormalized Like count maintained in the same mutations as `likes`. */
+  likeCount: v.number(),
+});
+
+const activeStandalonePostValidator = v.object({
+  state: v.literal("active"),
+  kind: v.literal("standalone"),
+  authorId: v.id("members"),
+  content: v.string(),
+  likeCount: v.number(),
+  activeReplyCount: v.number(),
+  activeRepostCount: v.number(),
+});
+
+const activeReplyPostValidator = v.object({
+  state: v.literal("active"),
+  kind: v.literal("reply"),
+  authorId: v.id("members"),
+  content: v.string(),
+  likeCount: v.number(),
+  activeReplyCount: v.number(),
+  activeRepostCount: v.number(),
+  parentPostId: v.id("posts"),
+  conversationRootId: v.id("posts"),
+});
+
+const activeQuotePostValidator = v.object({
+  state: v.literal("active"),
+  kind: v.literal("quote"),
+  authorId: v.id("members"),
+  content: v.string(),
+  likeCount: v.number(),
+  activeReplyCount: v.number(),
+  activeRepostCount: v.number(),
+  referencedPostId: v.id("posts"),
+});
+
+const activeRepostValidator = v.object({
+  state: v.literal("active"),
+  kind: v.literal("repost"),
+  authorId: v.id("members"),
+  sourcePostId: v.id("posts"),
+});
+
+const postRecordValidator = v.union(
+  legacyStandalonePostValidator,
+  activeStandalonePostValidator,
+  activeReplyPostValidator,
+  activeQuotePostValidator,
+  activeRepostValidator,
+);
+
 /**
  * Persistence schema for Still.
  *
@@ -19,14 +76,10 @@ const schema = defineSchema({
     avatarUrl: v.optional(v.string()),
   }).index("by_externalId", ["externalId"]),
 
-  posts: defineTable({
-    /** The Member who published the Post. */
-    authorId: v.id("members"),
-    /** Parsed plain-text Post content (1–280 trimmed characters). */
-    content: v.string(),
-    /** Denormalized Like count maintained in the same mutations as `likes`. */
-    likeCount: v.number(),
-  }).index("by_authorId", ["authorId"]),
+  posts: defineTable(postRecordValidator)
+    .index("by_authorId", ["authorId"])
+    .index("by_state_and_kind", ["state", "kind"])
+    .index("by_authorId_and_state_and_kind", ["authorId", "state", "kind"]),
 
   likes: defineTable({
     /** The Member who Liked the Post. */

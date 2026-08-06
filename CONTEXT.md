@@ -13,8 +13,32 @@ A person with an authenticated identity who can publish and like posts.
 _Avoid_: User, account, tweeter
 
 **Post**:
-A non-empty text message of at most 280 characters published by a member. Its author may delete it, but a published post cannot be edited.
+A publication created by a member. Every post is exactly one of a standalone post, reply, quote post, or repost; when it contains text, that text is at most 280 characters. A published post cannot be edited.
 _Avoid_: Tweet, status
+
+**Standalone Post**:
+A post that contains the author's own content without addressing or republishing another post.
+_Avoid_: Original tweet, top-level post
+
+**Reply**:
+A post with its own author, content, likes, and lifecycle that is addressed to exactly one parent post.
+_Avoid_: Comment, response
+
+**Quote Post**:
+A post whose author adds commentary while republishing a referenced post.
+_Avoid_: Quote tweet, quoted repost
+
+**Repost**:
+A member's republication of a referenced post without added commentary. It records the reposter and publication time but carries no engagement independent of the referenced post; a member may have at most one active repost of the same source and may remove it.
+_Avoid_: Retweet, empty quote post
+
+**Conversation**:
+A standalone post or quote post together with every reply descended from it, presented as one flat discussion.
+_Avoid_: Thread tree, comment tree
+
+**Post Tombstone**:
+A content-free, author-free placeholder that preserves a deleted post's position and relationships within a conversation. It appears only within that conversation and cannot receive engagement.
+_Avoid_: Deleted-content snapshot, removed post
 
 **Feed**:
 The public, reverse-chronological collection of posts from all members.

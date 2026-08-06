@@ -4,7 +4,7 @@ Still is a finite, reading-first social showcase built with Next.js, Convex, and
 
 Preview: [still-virid.vercel.app](https://still-virid.vercel.app)
 
-The canonical product language lives in [CONTEXT.md](./CONTEXT.md). The implementation sequence and handoff ledger live in [docs/IMPLEMENTATION.md](./docs/IMPLEMENTATION.md), the stack decision is recorded in [ADR 0001](./docs/adr/0001-nextjs-and-convex-for-the-showcase.md), and the visual system in [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md). Issues [#1](https://github.com/hzhuo-star/still/issues/1)–[#9](https://github.com/hzhuo-star/still/issues/9) hold the full specification and tracer-bullet tickets.
+The canonical product language lives in [CONTEXT.md](./CONTEXT.md). The implementation sequence and handoff ledger live in [docs/IMPLEMENTATION.md](./docs/IMPLEMENTATION.md), the stack decision is recorded in [ADR 0001](./docs/adr/0001-nextjs-and-convex-for-the-showcase.md), relational Post deletion in [ADR 0002](./docs/adr/0002-model-relational-posts-with-tombstones.md), and the visual system in [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md). Issues [#1](https://github.com/hzhuo-star/still/issues/1)–[#9](https://github.com/hzhuo-star/still/issues/9) hold the original specification and tracer-bullet tickets.
 
 ## What is implemented
 
@@ -17,7 +17,11 @@ The canonical product language lives in [CONTEXT.md](./CONTEXT.md). The implemen
 - Precise tagged expected failures (unauthenticated, invalid content, forbidden, not found) handled exhaustively with inline retry paths
 - Responsive three-, two-, and one-column Still shell, semantic landmarks, keyboard operation, visible focus, reduced-motion support, and 44px touch targets
 
-Deliberately out of scope: replies, reposts, following, personalized feeds, media, search, notifications, editing, pagination, and the other exclusions listed in issue #1.
+## Planned extension—not yet implemented
+
+The agreed next extension adds Replies, flat bounded Conversations, Quote Posts with shallow live previews, and unique reversible Reposts. Its complete product, persistence, interaction, migration, and verification contracts are recorded in [GitHub issue #10](https://github.com/hzhuo-star/still/issues/10) and [docs/IMPLEMENTATION.md](./docs/IMPLEMENTATION.md); implementation tickets [#11](https://github.com/hzhuo-star/still/issues/11)–[#16](https://github.com/hzhuo-star/still/issues/16) are dependency-linked and ready for agents. The extension is not yet implemented.
+
+Still deliberately out of scope: following, personalized feeds, media, search, notifications, reporting, blocking, audience controls, moderation tooling, editing, pagination, and the other unchanged exclusions from issue #1.
 
 ## Preview limitations
 

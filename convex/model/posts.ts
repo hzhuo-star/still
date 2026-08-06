@@ -36,15 +36,48 @@ async function toPostView(
           )
           .unique();
 
+  if (!("kind" in post)) {
+    return {
+      postId: post._id,
+      kind: "standalone",
+      content: post.content,
+      publishedAt: post._creationTime,
+      likeCount: post.likeCount,
+      activeReplyCount: 0,
+      activeRepostCount: 0,
+      viewerHasLiked: like !== null,
+      viewerCanDelete: viewerId === post.authorId,
+      author,
+    };
+  }
+
+  if (post.kind !== "standalone") {
+    return shouldNeverHappen(
+      `Only Standalone Posts are readable before their vertical slice; received ${post.kind}`,
+    );
+  }
+
   return {
     postId: post._id,
+    kind: post.kind,
     content: post.content,
     publishedAt: post._creationTime,
     likeCount: post.likeCount,
+    activeReplyCount: post.activeReplyCount,
+    activeRepostCount: post.activeRepostCount,
     viewerHasLiked: like !== null,
     viewerCanDelete: viewerId === post.authorId,
     author,
   };
+}
+
+function mergeNewest(
+  explicitPosts: ReadonlyArray<Doc<"posts">>,
+  legacyPosts: ReadonlyArray<Doc<"posts">>,
+): ReadonlyArray<Doc<"posts">> {
+  return [...explicitPosts, ...legacyPosts]
+    .sort((left, right) => right._creationTime - left._creationTime)
+    .slice(0, FEED_LIMIT + 1);
 }
 
 async function toBoundedList(
@@ -70,10 +103,23 @@ async function toBoundedList(
  */
 export async function listFeed(ctx: QueryCtx): Promise<PostList> {
   const viewerId = await currentMemberId(ctx);
-  const page = await ctx.db
-    .query("posts")
-    .order("desc")
-    .take(FEED_LIMIT + 1);
+  const [explicitPosts, legacyPosts] = await Promise.all([
+    ctx.db
+      .query("posts")
+      .withIndex("by_state_and_kind", (q) =>
+        q.eq("state", "active").eq("kind", "standalone"),
+      )
+      .order("desc")
+      .take(FEED_LIMIT + 1),
+    ctx.db
+      .query("posts")
+      .withIndex("by_state_and_kind", (q) =>
+        q.eq("state", undefined).eq("kind", undefined),
+      )
+      .order("desc")
+      .take(FEED_LIMIT + 1),
+  ]);
+  const page = mergeNewest(explicitPosts, legacyPosts);
 
   return await toBoundedList(ctx, page, viewerId);
 }
@@ -96,11 +142,29 @@ export async function listByMember(
   }
 
   const viewerId = await currentMemberId(ctx);
-  const page = await ctx.db
-    .query("posts")
-    .withIndex("by_authorId", (q) => q.eq("authorId", profile.profile.memberId))
-    .order("desc")
-    .take(FEED_LIMIT + 1);
+  const [explicitPosts, legacyPosts] = await Promise.all([
+    ctx.db
+      .query("posts")
+      .withIndex("by_authorId_and_state_and_kind", (q) =>
+        q
+          .eq("authorId", profile.profile.memberId)
+          .eq("state", "active")
+          .eq("kind", "standalone"),
+      )
+      .order("desc")
+      .take(FEED_LIMIT + 1),
+    ctx.db
+      .query("posts")
+      .withIndex("by_authorId_and_state_and_kind", (q) =>
+        q
+          .eq("authorId", profile.profile.memberId)
+          .eq("state", undefined)
+          .eq("kind", undefined),
+      )
+      .order("desc")
+      .take(FEED_LIMIT + 1),
+  ]);
+  const page = mergeNewest(explicitPosts, legacyPosts);
 
   return { _tag: "ok", ...(await toBoundedList(ctx, page, viewerId)) };
 }
@@ -129,9 +193,13 @@ export async function create(
   }
 
   const postId = await ctx.db.insert("posts", {
+    state: "active",
+    kind: "standalone",
     authorId: member.memberId,
     content: parsed.value,
     likeCount: 0,
+    activeReplyCount: 0,
+    activeRepostCount: 0,
   });
 
   return { _tag: "ok", postId };
@@ -157,6 +225,10 @@ export async function toggleLike(
   const post = await ctx.db.get("posts", postId);
 
   if (post === null) {
+    return { _tag: "post-not-found" };
+  }
+
+  if ("kind" in post && post.kind === "repost") {
     return { _tag: "post-not-found" };
   }
 
