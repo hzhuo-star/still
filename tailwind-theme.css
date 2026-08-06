@@ -1,0 +1,94 @@
+/* Still design tokens — Tailwind CSS v4 */
+@import "tailwindcss";
+
+@theme {
+  /* Semantic color roles */
+  --color-canvas: #f7f8f5;
+  --color-surface: #ffffff;
+  --color-ink: #202522;
+  --color-muted: #6b726c;
+  --color-line: #dde1dc;
+  --color-sage: #567362;
+  --color-sage-hover: #465f50;
+  --color-sage-soft: #e5ece7;
+  --color-danger: #9b3b3b;
+  --color-danger-soft: #f5e9e7;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-reading: Georgia, "Times New Roman", serif;
+
+  --text-meta: 0.6875rem;
+  --text-meta--line-height: 0.9375rem;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5625rem;
+  --text-quote: 1rem;
+  --text-quote--line-height: 1.5625rem;
+  --text-reading: 1.125rem;
+  --text-reading--line-height: 1.875rem;
+  --text-title: 2rem;
+  --text-title--line-height: 2.375rem;
+  --text-title--letter-spacing: -0.025em;
+
+  /* Shape */
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-pill: 9999px;
+
+  /* Named layout measures */
+  --container-feed: 38.125rem;
+  --container-nav: 11.875rem;
+  --container-context: 13.75rem;
+  --container-shell: 72.5rem;
+
+  /* Project-specific spacing */
+  --spacing-layout: 4.375rem;
+  --spacing-post: 1.75rem;
+  --spacing-touch: 2.75rem;
+
+  /* Restrained elevation and motion */
+  --shadow-float: 0 8px 24px rgb(32 37 34 / 0.08);
+  --ease-still: cubic-bezier(0.2, 0, 0, 1);
+  --default-transition-duration: 150ms;
+
+  /* Product breakpoints */
+  --breakpoint-feed: 40rem;
+  --breakpoint-shell: 50rem;
+  --breakpoint-context: 62.5rem;
+}
+
+@layer base {
+  html {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--color-canvas);
+  }
+
+  ::selection {
+    background: var(--color-sage-soft);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-sage);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}
