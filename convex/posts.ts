@@ -1,33 +1,19 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server";
-import { memberProfileValidator } from "./memberContract";
+import {
+  createPostOutcomeValidator,
+  listByMemberOutcomeValidator,
+  postListValidator,
+  removePostOutcomeValidator,
+  toggleLikeOutcomeValidator,
+} from "./contract/post";
 import * as Posts from "./model/posts";
-
-/** The complete immutable display model for one Post. */
-const postViewValidator = v.object({
-  postId: v.id("posts"),
-  content: v.string(),
-  publishedAt: v.number(),
-  likeCount: v.number(),
-  viewerHasLiked: v.boolean(),
-  viewerCanDelete: v.boolean(),
-  author: memberProfileValidator,
-});
-
-/** Whether a Post list contains every available Post or only the newest 50. */
-const listEndingValidator = v.union(
-  v.literal("complete"),
-  v.literal("truncated"),
-);
 
 /** Read the public Feed: the newest 50 Posts in reverse chronological order. */
 export const listFeed = query({
   args: {},
-  returns: v.object({
-    posts: v.array(postViewValidator),
-    ending: listEndingValidator,
-  }),
+  returns: postListValidator,
   handler: async (ctx) => await Posts.listFeed(ctx),
 });
 
@@ -37,14 +23,7 @@ export const listByMember = query({
     /** The Profile route's untrusted Member id segment. */
     memberId: v.string(),
   },
-  returns: v.union(
-    v.object({
-      _tag: v.literal("ok"),
-      posts: v.array(postViewValidator),
-      ending: listEndingValidator,
-    }),
-    v.object({ _tag: v.literal("member-not-found") }),
-  ),
+  returns: listByMemberOutcomeValidator,
   handler: async (ctx, args) => await Posts.listByMember(ctx, args.memberId),
 });
 
@@ -54,14 +33,7 @@ export const create = mutation({
     /** The raw composer draft; parsed into Post content before persisting. */
     content: v.string(),
   },
-  returns: v.union(
-    v.object({ _tag: v.literal("ok"), postId: v.id("posts") }),
-    v.object({ _tag: v.literal("unauthenticated") }),
-    v.object({
-      _tag: v.literal("invalid-content"),
-      reason: v.union(v.literal("empty"), v.literal("too-long")),
-    }),
-  ),
+  returns: createPostOutcomeValidator,
   handler: async (ctx, args) => await Posts.create(ctx, args.content),
 });
 
@@ -71,15 +43,7 @@ export const toggleLike = mutation({
     /** The Post whose Like state the Member is toggling. */
     postId: v.id("posts"),
   },
-  returns: v.union(
-    v.object({
-      _tag: v.literal("ok"),
-      state: v.union(v.literal("liked"), v.literal("unliked")),
-      likeCount: v.number(),
-    }),
-    v.object({ _tag: v.literal("unauthenticated") }),
-    v.object({ _tag: v.literal("post-not-found") }),
-  ),
+  returns: toggleLikeOutcomeValidator,
   handler: async (ctx, args) => await Posts.toggleLike(ctx, args.postId),
 });
 
@@ -89,11 +53,6 @@ export const remove = mutation({
     /** The Post the author is deleting. */
     postId: v.id("posts"),
   },
-  returns: v.union(
-    v.object({ _tag: v.literal("ok") }),
-    v.object({ _tag: v.literal("unauthenticated") }),
-    v.object({ _tag: v.literal("forbidden") }),
-    v.object({ _tag: v.literal("post-not-found") }),
-  ),
+  returns: removePostOutcomeValidator,
   handler: async (ctx, args) => await Posts.remove(ctx, args.postId),
 });

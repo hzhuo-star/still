@@ -5,8 +5,8 @@ import { useMutation } from "convex/react";
 import { useState } from "react";
 
 import { api } from "../../convex/_generated/api";
-import * as PostContent from "../../convex/postContent";
-import { casesHandled } from "../../convex/result";
+import * as PostContent from "../../convex/lib/postContent";
+import { casesHandled } from "../../convex/lib/result";
 
 type ComposerFailure =
   PostContent.InvalidPostContentReason | "unauthenticated" | "connection";

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ListEnding, PostView } from "../../convex/postContract";
+import type { ListEnding, PostView } from "../../convex/contract/post";
 import { ListEndingNotice } from "@/posts/list-ending";
 import { PostCard } from "@/posts/post-card";
 

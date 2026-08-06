@@ -1,6 +1,6 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import * as PostContent from "../postContent";
+import * as PostContent from "../lib/postContent";
 import {
   FEED_LIMIT,
   type CreatePostOutcome,
@@ -9,8 +9,8 @@ import {
   type PostView,
   type RemovePostOutcome,
   type ToggleLikeOutcome,
-} from "../postContract";
-import { shouldNeverHappen } from "../result";
+} from "../contract/post";
+import { shouldNeverHappen } from "../lib/result";
 import { currentMemberId, ensureCurrent, getProfile } from "./members";
 
 async function toPostView(

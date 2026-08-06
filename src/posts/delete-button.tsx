@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { casesHandled } from "../../convex/result";
+import { casesHandled } from "../../convex/lib/result";
 
 type DeleteButtonProps = {
   /** The Post this control deletes; shown only to its author. */

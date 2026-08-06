@@ -1,4 +1,4 @@
-import { FEED_LIMIT, type ListEnding } from "../../convex/postContract";
+import { FEED_LIMIT, type ListEnding } from "../../convex/contract/post";
 
 type ListEndingNoticeProps = {
   /** Whether the list contains every available Post or only the newest 50. */

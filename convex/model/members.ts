@@ -6,7 +6,7 @@ import type {
   EnsureCurrentMemberOutcome,
   GetMemberProfileOutcome,
   MemberProfile,
-} from "../memberContract";
+} from "../contract/member";
 
 function findByExternalId(
   ctx: QueryCtx,

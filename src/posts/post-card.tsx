@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import type { PostView } from "../../convex/postContract";
+import type { PostView } from "../../convex/contract/post";
 import { MemberAvatar } from "@/members/member-avatar";
 import { DeleteButton } from "@/posts/delete-button";
 import { LikeButton } from "@/posts/like-button";

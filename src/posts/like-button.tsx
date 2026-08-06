@@ -5,8 +5,8 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { useState } from "react";
 
 import { api } from "../../convex/_generated/api";
-import type { PostView } from "../../convex/postContract";
-import { casesHandled } from "../../convex/result";
+import type { PostView } from "../../convex/contract/post";
+import { casesHandled } from "../../convex/lib/result";
 
 type LikeButtonProps = {
   /** The Post whose Like state this control toggles. */
