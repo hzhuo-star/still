@@ -60,6 +60,21 @@ export function LikeButton({ post }: LikeButtonProps) {
           });
         }
       }
+
+      for (const entry of localStore.getAllQueries(api.posts.getConversation)) {
+        if (entry.value !== undefined && entry.value._tag === "ok") {
+          const flipEntry = (
+            item: (typeof entry.value.replies)[number],
+          ): (typeof entry.value.replies)[number] =>
+            item._tag === "active" ? { ...item, post: flip(item.post) } : item;
+
+          localStore.setQuery(api.posts.getConversation, entry.args, {
+            ...entry.value,
+            root: flipEntry(entry.value.root),
+            replies: entry.value.replies.map(flipEntry),
+          });
+        }
+      }
     },
   );
 

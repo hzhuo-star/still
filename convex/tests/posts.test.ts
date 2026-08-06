@@ -43,6 +43,23 @@ async function publish(
   return outcome.postId;
 }
 
+async function publishReply(
+  backend: TestConvex<typeof schema>,
+  identity: { subject: string; name?: string },
+  parentPostId: Id<"posts">,
+  content: string,
+): Promise<Id<"posts">> {
+  const outcome = await backend
+    .withIdentity(identity)
+    .mutation(api.posts.createReply, { parentPostId, content });
+
+  if (outcome._tag !== "ok") {
+    throw new Error(`Expected a published Reply, got ${outcome._tag}`);
+  }
+
+  return outcome.postId;
+}
+
 async function ensureMember(
   backend: TestConvex<typeof schema>,
   identity: { subject: string; name?: string },
@@ -137,6 +154,404 @@ describe("Posts.create", () => {
       activeReplyCount: 0,
       activeRepostCount: 0,
     });
+  });
+});
+
+describe("Posts.createReply", () => {
+  test("publishes a Reply with its direct parent and Conversation root", async () => {
+    const backend = newBackend();
+    const rootPostId = await publish(backend, aliceIdentity, "A root thought.");
+
+    const replyPostId = await publishReply(
+      backend,
+      benIdentity,
+      rootPostId,
+      "  A direct Reply.  ",
+    );
+
+    const conversation = await backend.query(api.posts.getConversation, {
+      postId: replyPostId,
+    });
+    expect(conversation).toMatchObject({
+      _tag: "ok",
+      requestedPostId: replyPostId,
+      root: { _tag: "active", post: { postId: rootPostId } },
+      replies: [
+        {
+          _tag: "active",
+          post: {
+            postId: replyPostId,
+            kind: "reply",
+            content: "A direct Reply.",
+            parentPostId: rootPostId,
+            conversationRootId: rootPostId,
+          },
+        },
+      ],
+      ending: "complete",
+    });
+  });
+
+  test("returns precise outcomes for authentication, content, and target eligibility", async () => {
+    const backend = newBackend();
+    const activePostId = await publish(
+      backend,
+      aliceIdentity,
+      "An eligible Post.",
+    );
+
+    await expect(
+      backend.mutation(api.posts.createReply, {
+        parentPostId: activePostId,
+        content: "Signed out.",
+      }),
+    ).resolves.toEqual({ _tag: "unauthenticated" });
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+        parentPostId: activePostId,
+        content: "   ",
+      }),
+    ).resolves.toEqual({ _tag: "invalid-content", reason: "empty" });
+
+    const missingPostId = await publish(
+      backend,
+      aliceIdentity,
+      "Hard deleted only to create a missing id.",
+    );
+    await backend.run(async (ctx) => await ctx.db.delete(missingPostId));
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+        parentPostId: missingPostId,
+        content: "Missing target.",
+      }),
+    ).resolves.toEqual({ _tag: "target-not-found" });
+
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.remove, { postId: activePostId });
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+        parentPostId: activePostId,
+        content: "Deleted target.",
+      }),
+    ).resolves.toEqual({ _tag: "target-deleted" });
+
+    const memberId = await ensureMember(backend, aliceIdentity);
+    const sourcePostId = await publish(
+      backend,
+      aliceIdentity,
+      "A Repost source.",
+    );
+    const repostId = await backend.run(async (ctx) =>
+      ctx.db.insert("posts", {
+        state: "active",
+        kind: "repost",
+        authorId: memberId,
+        sourcePostId,
+      }),
+    );
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+        parentPostId: repostId,
+        content: "Wrapper target.",
+      }),
+    ).resolves.toEqual({ _tag: "target-is-repost" });
+  });
+
+  test("derives nested roots and maintains active direct Reply counts", async () => {
+    const backend = newBackend();
+    const rootPostId = await publish(backend, aliceIdentity, "Root");
+    const directReplyId = await publishReply(
+      backend,
+      benIdentity,
+      rootPostId,
+      "Direct",
+    );
+    const nestedReplyId = await publishReply(
+      backend,
+      aliceIdentity,
+      directReplyId,
+      "Nested",
+    );
+
+    const beforeDelete = await backend.query(api.posts.getConversation, {
+      postId: rootPostId,
+    });
+    expect(beforeDelete).toMatchObject({
+      _tag: "ok",
+      root: { _tag: "active", post: { activeReplyCount: 1 } },
+      replies: [
+        {
+          _tag: "active",
+          post: {
+            postId: directReplyId,
+            activeReplyCount: 1,
+            conversationRootId: rootPostId,
+          },
+        },
+        {
+          _tag: "active",
+          post: {
+            postId: nestedReplyId,
+            activeReplyCount: 0,
+            parentPostId: directReplyId,
+            conversationRootId: rootPostId,
+          },
+        },
+      ],
+    });
+
+    await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.remove, { postId: directReplyId });
+    const afterDelete = await backend.query(api.posts.getConversation, {
+      postId: directReplyId,
+    });
+    expect(afterDelete).toMatchObject({
+      _tag: "ok",
+      requestedPostId: directReplyId,
+      root: { _tag: "active", post: { activeReplyCount: 0 } },
+      replies: [
+        { _tag: "tombstone", post: { postId: directReplyId } },
+        {
+          _tag: "active",
+          post: { postId: nestedReplyId, conversationRootId: rootPostId },
+        },
+      ],
+    });
+  });
+
+  test("allows active Quote Posts as Reply targets", async () => {
+    const backend = newBackend();
+    const memberId = await ensureMember(backend, aliceIdentity);
+    const referencedPostId = await publish(
+      backend,
+      aliceIdentity,
+      "Referenced",
+    );
+    const quotePostId = await backend.run(async (ctx) =>
+      ctx.db.insert("posts", {
+        state: "active",
+        kind: "quote",
+        authorId: memberId,
+        content: "Commentary",
+        likeCount: 0,
+        activeReplyCount: 0,
+        activeRepostCount: 0,
+        referencedPostId,
+      }),
+    );
+
+    const replyPostId = await publishReply(
+      backend,
+      benIdentity,
+      quotePostId,
+      "Replying to a Quote Post.",
+    );
+    const conversation = await backend.query(api.posts.getConversation, {
+      postId: replyPostId,
+    });
+
+    expect(conversation).toMatchObject({
+      _tag: "ok",
+      root: {
+        _tag: "active",
+        post: { postId: quotePostId, kind: "quote", activeReplyCount: 1 },
+      },
+      replies: [{ _tag: "active", post: { postId: replyPostId } }],
+    });
+  });
+});
+
+describe("Posts.getConversation", () => {
+  test("keeps public reads bounded, chronological, and honest", async () => {
+    const backend = newBackend();
+    const rootPostId = await publish(backend, aliceIdentity, "Root");
+    const replyIds: Array<Id<"posts">> = [];
+    for (let index = 1; index <= 52; index += 1) {
+      replyIds.push(
+        await publishReply(
+          backend,
+          index % 2 === 0 ? aliceIdentity : benIdentity,
+          rootPostId,
+          `Reply ${index}`,
+        ),
+      );
+    }
+
+    const normal = await backend.query(api.posts.getConversation, {
+      postId: rootPostId,
+    });
+    expect(normal._tag).toBe("ok");
+    if (normal._tag !== "ok") {
+      return;
+    }
+    expect(normal.replies).toHaveLength(50);
+    expect(normal.ending).toBe("truncated");
+    expect(
+      normal.replies.map((entry) =>
+        entry._tag === "active" ? entry.post.content : "deleted",
+      ),
+    ).toEqual(Array.from({ length: 50 }, (_, index) => `Reply ${index + 3}`));
+
+    const oldestReplyId = replyIds[0];
+    expect(oldestReplyId).toBeDefined();
+    if (oldestReplyId === undefined) {
+      return;
+    }
+    const deepLinked = await backend.query(api.posts.getConversation, {
+      postId: oldestReplyId,
+    });
+    expect(deepLinked._tag).toBe("ok");
+    if (deepLinked._tag !== "ok") {
+      return;
+    }
+    expect(deepLinked.replies).toHaveLength(50);
+    expect(deepLinked.ending).toBe("truncated");
+    expect(deepLinked.requestedPostId).toBe(oldestReplyId);
+    expect(deepLinked.requestedReplyWasOutsideWindow).toBe(true);
+    expect(
+      deepLinked.replies.some((entry) => entry.post.postId === oldestReplyId),
+    ).toBe(true);
+  });
+
+  test("reports invalid, missing, and Repost wrapper URLs as not found", async () => {
+    const backend = newBackend();
+    await expect(
+      backend.query(api.posts.getConversation, { postId: "not-an-id" }),
+    ).resolves.toEqual({ _tag: "post-not-found" });
+
+    const memberId = await ensureMember(backend, aliceIdentity);
+    const sourcePostId = await publish(backend, aliceIdentity, "Source");
+    const repostId = await backend.run(async (ctx) =>
+      ctx.db.insert("posts", {
+        state: "active",
+        kind: "repost",
+        authorId: memberId,
+        sourcePostId,
+      }),
+    );
+    await expect(
+      backend.query(api.posts.getConversation, { postId: repostId }),
+    ).resolves.toEqual({ _tag: "post-not-found" });
+  });
+});
+
+describe("Reply lifecycle across public Posts operations", () => {
+  test("excludes Replies from Feed, includes them on Profiles, and supports Like and tombstone deletion", async () => {
+    const backend = newBackend();
+    const rootPostId = await publish(backend, aliceIdentity, "Feed root");
+    const replyPostId = await publishReply(
+      backend,
+      benIdentity,
+      rootPostId,
+      "Profile Reply",
+    );
+    const benMemberId = await ensureMember(backend, benIdentity);
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(feed.posts.map((post) => post.postId)).toEqual([rootPostId]);
+
+    const profile = await backend.query(api.posts.listByMember, {
+      memberId: benMemberId,
+    });
+    expect(profile).toMatchObject({
+      _tag: "ok",
+      posts: [
+        {
+          postId: replyPostId,
+          kind: "reply",
+          replyingTo: {
+            _tag: "active",
+            postId: rootPostId,
+            author: { displayName: "Alice Reader" },
+          },
+        },
+      ],
+    });
+
+    await expect(
+      backend
+        .withIdentity(aliceIdentity)
+        .mutation(api.posts.toggleLike, { postId: replyPostId }),
+    ).resolves.toEqual({ _tag: "ok", state: "liked", likeCount: 1 });
+    await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.remove, { postId: replyPostId });
+
+    const deletedProfile = await backend.query(api.posts.listByMember, {
+      memberId: benMemberId,
+    });
+    expect(deletedProfile).toEqual({
+      _tag: "ok",
+      posts: [],
+      ending: "complete",
+    });
+    await expect(
+      backend
+        .withIdentity(aliceIdentity)
+        .mutation(api.posts.toggleLike, { postId: replyPostId }),
+    ).resolves.toEqual({ _tag: "post-not-found" });
+
+    const conversation = await backend.query(api.posts.getConversation, {
+      postId: replyPostId,
+    });
+    expect(conversation).toMatchObject({
+      _tag: "ok",
+      replies: [
+        {
+          _tag: "tombstone",
+          post: { postId: replyPostId, kind: "reply" },
+        },
+      ],
+    });
+    const remainingLikes = await backend.run(async (ctx) =>
+      ctx.db.query("likes").collect(),
+    );
+    expect(remainingLikes).toEqual([]);
+  });
+
+  test("strips a deleted root while preserving surviving Replies and its stable URL", async () => {
+    const backend = newBackend();
+    const rootPostId = await publish(
+      backend,
+      aliceIdentity,
+      "Identity and content must disappear.",
+    );
+    const replyPostId = await publishReply(
+      backend,
+      benIdentity,
+      rootPostId,
+      "A surviving Reply.",
+    );
+
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.remove, { postId: rootPostId });
+
+    const conversation = await backend.query(api.posts.getConversation, {
+      postId: rootPostId,
+    });
+    expect(conversation).toMatchObject({
+      _tag: "ok",
+      root: {
+        _tag: "tombstone",
+        post: { postId: rootPostId, kind: "standalone" },
+      },
+      replies: [
+        {
+          _tag: "active",
+          post: {
+            postId: replyPostId,
+            replyingTo: { _tag: "tombstone", postId: rootPostId },
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(conversation)).not.toContain("Alice Reader");
+    expect(JSON.stringify(conversation)).not.toContain(
+      "Identity and content must disappear.",
+    );
   });
 });
 

@@ -3,6 +3,10 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
   createPostOutcomeValidator,
+  createReplyArgsValidator,
+  createReplyOutcomeValidator,
+  getConversationArgsValidator,
+  getConversationOutcomeValidator,
   listByMemberOutcomeValidator,
   postListValidator,
   removePostOutcomeValidator,
@@ -35,6 +39,21 @@ export const create = mutation({
   },
   returns: createPostOutcomeValidator,
   handler: async (ctx, args) => await Posts.create(ctx, args.content),
+});
+
+/** Publish a Reply to an active authored Post. */
+export const createReply = mutation({
+  args: createReplyArgsValidator.fields,
+  returns: createReplyOutcomeValidator,
+  handler: async (ctx, args) =>
+    await Posts.createReply(ctx, args.parentPostId, args.content),
+});
+
+/** Resolve a stable Post URL into one bounded, flat public Conversation. */
+export const getConversation = query({
+  args: getConversationArgsValidator.fields,
+  returns: getConversationOutcomeValidator,
+  handler: async (ctx, args) => await Posts.getConversation(ctx, args.postId),
 });
 
 /** Like or unlike a Post as the authenticated Member. */

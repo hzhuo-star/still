@@ -17,7 +17,7 @@ export function StillShell({ activeRoute, auth, children }: StillShellProps) {
         className="sr-only z-20 rounded-control bg-surface px-3 py-2 focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
         href="#main-content"
       >
-        Skip to Feed
+        Skip to main content
       </a>
       <header className="sticky top-0 z-10 -mx-4 flex min-h-16 items-center justify-between border-b border-line bg-canvas/95 px-4 backdrop-blur shell:top-8 shell:mx-0 shell:min-h-0 shell:self-start shell:flex-col shell:items-start shell:gap-8 shell:border-0 shell:bg-transparent shell:px-0 shell:backdrop-blur-none">
         <Link

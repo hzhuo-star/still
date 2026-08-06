@@ -50,12 +50,39 @@ const activeRepostValidator = v.object({
   sourcePostId: v.id("posts"),
 });
 
+const standalonePostTombstoneValidator = v.object({
+  state: v.literal("deleted"),
+  kind: v.literal("standalone"),
+  activeReplyCount: v.number(),
+  activeRepostCount: v.number(),
+});
+
+const replyPostTombstoneValidator = v.object({
+  state: v.literal("deleted"),
+  kind: v.literal("reply"),
+  activeReplyCount: v.number(),
+  activeRepostCount: v.number(),
+  parentPostId: v.id("posts"),
+  conversationRootId: v.id("posts"),
+});
+
+const quotePostTombstoneValidator = v.object({
+  state: v.literal("deleted"),
+  kind: v.literal("quote"),
+  activeReplyCount: v.number(),
+  activeRepostCount: v.number(),
+  referencedPostId: v.id("posts"),
+});
+
 const postRecordValidator = v.union(
   legacyStandalonePostValidator,
   activeStandalonePostValidator,
   activeReplyPostValidator,
   activeQuotePostValidator,
   activeRepostValidator,
+  standalonePostTombstoneValidator,
+  replyPostTombstoneValidator,
+  quotePostTombstoneValidator,
 );
 
 /**
@@ -79,7 +106,8 @@ const schema = defineSchema({
   posts: defineTable(postRecordValidator)
     .index("by_authorId", ["authorId"])
     .index("by_state_and_kind", ["state", "kind"])
-    .index("by_authorId_and_state_and_kind", ["authorId", "state", "kind"]),
+    .index("by_authorId_and_state_and_kind", ["authorId", "state", "kind"])
+    .index("by_conversationRootId", ["conversationRootId"]),
 
   likes: defineTable({
     /** The Member who Liked the Post. */
