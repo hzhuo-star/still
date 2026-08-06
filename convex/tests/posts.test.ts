@@ -1349,6 +1349,32 @@ describe("Posts.remove", () => {
       }),
     ]);
   });
+
+  test("refuses to mask a corrupted direct Reply count", async () => {
+    const backend = newBackend();
+    const rootPostId = await publish(
+      backend,
+      aliceIdentity,
+      "A parent whose count must stay truthful.",
+    );
+    const asBen = backend.withIdentity(benIdentity);
+    const created = await asBen.mutation(api.posts.createReply, {
+      parentPostId: rootPostId,
+      content: "A direct Reply.",
+    });
+    expect(created._tag).toBe("ok");
+    if (created._tag !== "ok") {
+      return;
+    }
+
+    await backend.run(async (ctx) => {
+      await ctx.db.patch("posts", rootPostId, { activeReplyCount: 0 });
+    });
+
+    await expect(
+      asBen.mutation(api.posts.remove, { postId: created.postId }),
+    ).rejects.toThrow("Reply parent count cannot fall below zero");
+  });
 });
 
 describe("Posts.listByMember", () => {

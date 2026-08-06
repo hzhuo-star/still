@@ -20,22 +20,26 @@ function describeReposts(post: AuthoredPostView): string {
   return `${post.activeRepostCount} ${post.activeRepostCount === 1 ? "repost" : "reposts"}`;
 }
 
+function updateSource(
+  source: AuthoredPostView,
+  sourcePostId: AuthoredPostView["postId"],
+): AuthoredPostView {
+  return source.postId === sourcePostId
+    ? {
+        ...source,
+        viewerHasReposted: !source.viewerHasReposted,
+        activeRepostCount:
+          source.activeRepostCount + (source.viewerHasReposted ? -1 : 1),
+      }
+    : source;
+}
+
 function updatePost(
   post: PostView,
   sourcePostId: AuthoredPostView["postId"],
 ): PostView | null {
-  const updateSource = (source: AuthoredPostView): AuthoredPostView =>
-    source.postId === sourcePostId
-      ? {
-          ...source,
-          viewerHasReposted: !source.viewerHasReposted,
-          activeRepostCount:
-            source.activeRepostCount + (source.viewerHasReposted ? -1 : 1),
-        }
-      : source;
-
   if (post.kind !== "repost") {
-    return updateSource(post);
+    return updateSource(post, sourcePostId);
   }
 
   if (
@@ -46,7 +50,7 @@ function updatePost(
     return null;
   }
 
-  return { ...post, source: updateSource(post.source) };
+  return { ...post, source: updateSource(post.source, sourcePostId) };
 }
 
 function updatePosts(
@@ -86,6 +90,23 @@ export function RepostButton({ post }: RepostButtonProps) {
           localStore.setQuery(api.posts.listByMember, entry.args, {
             ...entry.value,
             posts: updatePosts(entry.value.posts, args.postId),
+          });
+        }
+      }
+
+      for (const entry of localStore.getAllQueries(api.posts.getConversation)) {
+        if (entry.value !== undefined && entry.value._tag === "ok") {
+          const updateEntry = (
+            item: (typeof entry.value.replies)[number],
+          ): (typeof entry.value.replies)[number] =>
+            item._tag === "active"
+              ? { ...item, post: updateSource(item.post, args.postId) }
+              : item;
+
+          localStore.setQuery(api.posts.getConversation, entry.args, {
+            ...entry.value,
+            root: updateEntry(entry.value.root),
+            replies: entry.value.replies.map(updateEntry),
           });
         }
       }

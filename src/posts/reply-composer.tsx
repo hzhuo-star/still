@@ -5,15 +5,17 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "../../convex/_generated/api";
-import type { PostView } from "../../convex/contract/post";
+import type { AuthoredPostView } from "../../convex/contract/post";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
 
 type ReplyComposerProps = {
   /** The active authored Post selected as the direct parent. */
-  readonly target: PostView;
+  readonly target: AuthoredPostView;
   /** Whether navigation requested that the textarea receive focus. */
   readonly initiallyOpen: boolean;
+  /** Whether the selected target disappeared while this composer was open. */
+  readonly targetUnavailable?: boolean;
 };
 
 type ReplyFailure =
@@ -77,13 +79,18 @@ function SignedOutReplyInvite() {
   );
 }
 
-function ReplyForm({ target, initiallyOpen }: ReplyComposerProps) {
+function ReplyForm({
+  target,
+  initiallyOpen,
+  targetUnavailable = false,
+}: ReplyComposerProps) {
   const [state, setState] = useState<ReplyComposerState>(
     initiallyOpen
       ? { _tag: "editing", draft: "", failure: null }
       : { _tag: "closed" },
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previouslyRequestedOpen = useRef(initiallyOpen);
   const createReply = useMutation(api.posts.createReply);
   const pending = state._tag === "pending";
   const draft = state._tag === "closed" ? "" : state.draft;
@@ -94,6 +101,20 @@ function ReplyForm({ target, initiallyOpen }: ReplyComposerProps) {
       textareaRef.current?.focus();
     }
   }, [state._tag]);
+
+  useEffect(() => {
+    const navigationRequestedOpen =
+      initiallyOpen && !previouslyRequestedOpen.current;
+    previouslyRequestedOpen.current = initiallyOpen;
+
+    if (navigationRequestedOpen) {
+      setState((current) =>
+        current._tag === "closed"
+          ? { _tag: "editing", draft: "", failure: null }
+          : current,
+      );
+    }
+  }, [initiallyOpen]);
 
   if (state._tag === "closed") {
     return (
@@ -193,6 +214,14 @@ function ReplyForm({ target, initiallyOpen }: ReplyComposerProps) {
       {state._tag === "editing" && state.failure !== null ? (
         <p className="mt-1 text-body text-danger" role="alert">
           {failureMessage(state.failure)}
+        </p>
+      ) : null}
+      {state._tag === "editing" &&
+      state.failure === null &&
+      targetUnavailable ? (
+        <p className="mt-1 text-body text-danger" role="alert">
+          This Post was deleted. Your draft is safe, but it can no longer
+          receive Replies.
         </p>
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">

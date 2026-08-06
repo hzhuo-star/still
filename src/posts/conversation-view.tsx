@@ -2,15 +2,17 @@
 
 import { useQuery } from "convex/react";
 import Link from "next/link";
+import { useState } from "react";
 
 import { api } from "../../convex/_generated/api";
 import {
   CONVERSATION_REPLY_LIMIT,
+  type AuthoredPostView,
   type ConversationEntry,
-  type PostView,
 } from "../../convex/contract/post";
 import { PostCard } from "@/posts/post-card";
 import { PostListSkeleton } from "@/posts/post-list-skeleton";
+import { QuoteComposerProvider } from "@/posts/quote-action";
 import { ReplyComposer } from "@/posts/reply-composer";
 
 type ConversationViewProps = {
@@ -84,11 +86,36 @@ function requestedTarget(
   root: ConversationEntry,
   replies: ReadonlyArray<ConversationEntry>,
   requestedPostId: string,
-): PostView | null {
+): AuthoredPostView | null {
   const requested = [root, ...replies].find(
     (entry) => entry.post.postId === requestedPostId,
   );
   return requested?._tag === "active" ? requested.post : null;
+}
+
+function ConversationReplyComposer({
+  composeReply,
+  replies,
+  requestedPostId,
+  root,
+}: {
+  readonly composeReply: boolean;
+  readonly replies: ReadonlyArray<ConversationEntry>;
+  readonly requestedPostId: string;
+  readonly root: ConversationEntry;
+}) {
+  const activeTarget = requestedTarget(root, replies, requestedPostId);
+  const [target] = useState(activeTarget);
+
+  return target === null ? null : (
+    <section aria-label="Reply composer" className="my-6">
+      <ReplyComposer
+        initiallyOpen={composeReply}
+        target={target}
+        targetUnavailable={activeTarget === null}
+      />
+    </section>
+  );
 }
 
 /**
@@ -108,14 +135,8 @@ export function ConversationView({
     return <ConversationNotFound />;
   }
 
-  const target = requestedTarget(
-    outcome.root,
-    outcome.replies,
-    outcome.requestedPostId,
-  );
-
   return (
-    <>
+    <QuoteComposerProvider>
       <header>
         <p className="text-label font-semibold tracking-wider text-sage uppercase">
           Conversation
@@ -132,11 +153,13 @@ export function ConversationView({
         />
       </section>
 
-      {target === null ? null : (
-        <section aria-label="Reply composer" className="my-6">
-          <ReplyComposer initiallyOpen={composeReply} target={target} />
-        </section>
-      )}
+      <ConversationReplyComposer
+        composeReply={composeReply}
+        key={outcome.requestedPostId}
+        replies={outcome.replies}
+        requestedPostId={outcome.requestedPostId}
+        root={outcome.root}
+      />
 
       <section aria-labelledby="conversation-replies" className="mt-8">
         <h2
@@ -169,6 +192,6 @@ export function ConversationView({
               : `Showing the latest ${CONVERSATION_REPLY_LIMIT} replies.`}
         </p>
       </section>
-    </>
+    </QuoteComposerProvider>
   );
 }

@@ -460,17 +460,42 @@ async function createRepostIfMissing(
     }
   | { readonly _tag: "already-reposted" }
 > {
-  const existing = await ctx.db
-    .query("posts")
-    .withIndex("by_sourcePostId_and_authorId", (q) =>
-      q.eq("sourcePostId", source._id).eq("authorId", authorId),
-    )
-    .unique();
+  const existing = await findRepost(ctx, source._id, authorId);
 
   if (existing !== null) {
     return { _tag: "already-reposted" };
   }
 
+  return { _tag: "ok", ...(await createRepost(ctx, source, authorId)) };
+}
+
+async function findRepost(
+  ctx: MutationCtx,
+  sourcePostId: Doc<"posts">["_id"],
+  authorId: Doc<"members">["_id"],
+): Promise<RepostRecord | null> {
+  const post = await ctx.db
+    .query("posts")
+    .withIndex("by_sourcePostId_and_authorId", (q) =>
+      q.eq("sourcePostId", sourcePostId).eq("authorId", authorId),
+    )
+    .unique();
+
+  if (post === null || post.kind === "repost") {
+    return post;
+  }
+
+  return shouldNeverHappen("Only Reposts may have a source Post id");
+}
+
+async function createRepost(
+  ctx: MutationCtx,
+  source: EngagementPostRecord,
+  authorId: Doc<"members">["_id"],
+): Promise<{
+  readonly postId: Doc<"posts">["_id"];
+  readonly activeRepostCount: number;
+}> {
   const postId = await ctx.db.insert("posts", {
     state: "active",
     kind: "repost",
@@ -480,7 +505,7 @@ async function createRepostIfMissing(
   const activeRepostCount = source.activeRepostCount + 1;
   await ctx.db.patch("posts", source._id, { activeRepostCount });
 
-  return { _tag: "ok", postId, activeRepostCount };
+  return { postId, activeRepostCount };
 }
 
 /**
@@ -736,12 +761,7 @@ export async function toggleRepost(
   }
   const source = target.post;
 
-  const existing = await ctx.db
-    .query("posts")
-    .withIndex("by_sourcePostId_and_authorId", (q) =>
-      q.eq("sourcePostId", source._id).eq("authorId", member.memberId),
-    )
-    .unique();
+  const existing = await findRepost(ctx, source._id, member.memberId);
   const currentCount = source.activeRepostCount;
 
   if (existing !== null) {
@@ -754,15 +774,11 @@ export async function toggleRepost(
     return { _tag: "ok", state: "not-reposted", activeRepostCount };
   }
 
-  await ctx.db.insert("posts", {
-    state: "active",
-    kind: "repost",
-    authorId: member.memberId,
-    sourcePostId: source._id,
-  });
-  const activeRepostCount = currentCount + 1;
-
-  await ctx.db.patch("posts", source._id, { activeRepostCount });
+  const { activeRepostCount } = await createRepost(
+    ctx,
+    source,
+    member.memberId,
+  );
 
   return { _tag: "ok", state: "reposted", activeRepostCount };
 }
@@ -824,8 +840,11 @@ export async function remove(
   if (post.kind === "reply") {
     const parent = await ctx.db.get("posts", post.parentPostId);
     if (parent !== null && parent.kind !== "repost") {
+      if (parent.activeReplyCount <= 0) {
+        return shouldNeverHappen("Reply parent count cannot fall below zero");
+      }
       await ctx.db.patch("posts", parent._id, {
-        activeReplyCount: Math.max(0, parent.activeReplyCount - 1),
+        activeReplyCount: parent.activeReplyCount - 1,
       });
     }
   }

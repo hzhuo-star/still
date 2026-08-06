@@ -1,9 +1,8 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const activeStandalonePostValidator = v.object({
+const activeAuthoredPostValidator = v.object({
   state: v.literal("active"),
-  kind: v.literal("standalone"),
   authorId: v.id("members"),
   content: v.string(),
   likeCount: v.number(),
@@ -11,26 +10,18 @@ const activeStandalonePostValidator = v.object({
   activeRepostCount: v.number(),
 });
 
-const activeReplyPostValidator = v.object({
-  state: v.literal("active"),
+const activeStandalonePostValidator = activeAuthoredPostValidator.extend({
+  kind: v.literal("standalone"),
+});
+
+const activeReplyPostValidator = activeAuthoredPostValidator.extend({
   kind: v.literal("reply"),
-  authorId: v.id("members"),
-  content: v.string(),
-  likeCount: v.number(),
-  activeReplyCount: v.number(),
-  activeRepostCount: v.number(),
   parentPostId: v.id("posts"),
   conversationRootId: v.id("posts"),
 });
 
-const activeQuotePostValidator = v.object({
-  state: v.literal("active"),
+const activeQuotePostValidator = activeAuthoredPostValidator.extend({
   kind: v.literal("quote"),
-  authorId: v.id("members"),
-  content: v.string(),
-  likeCount: v.number(),
-  activeReplyCount: v.number(),
-  activeRepostCount: v.number(),
   referencedPostId: v.id("posts"),
 });
 
@@ -41,27 +32,24 @@ const activeRepostValidator = v.object({
   sourcePostId: v.id("posts"),
 });
 
-const standalonePostTombstoneValidator = v.object({
+const postTombstoneValidator = v.object({
   state: v.literal("deleted"),
-  kind: v.literal("standalone"),
   activeReplyCount: v.number(),
   activeRepostCount: v.number(),
 });
 
-const replyPostTombstoneValidator = v.object({
-  state: v.literal("deleted"),
+const standalonePostTombstoneValidator = postTombstoneValidator.extend({
+  kind: v.literal("standalone"),
+});
+
+const replyPostTombstoneValidator = postTombstoneValidator.extend({
   kind: v.literal("reply"),
-  activeReplyCount: v.number(),
-  activeRepostCount: v.number(),
   parentPostId: v.id("posts"),
   conversationRootId: v.id("posts"),
 });
 
-const quotePostTombstoneValidator = v.object({
-  state: v.literal("deleted"),
+const quotePostTombstoneValidator = postTombstoneValidator.extend({
   kind: v.literal("quote"),
-  activeReplyCount: v.number(),
-  activeRepostCount: v.number(),
   referencedPostId: v.id("posts"),
 });
 
