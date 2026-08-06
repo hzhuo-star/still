@@ -27,11 +27,12 @@ Planning is confirmed and implementation is authorized. The implementation speci
 
 ## Agreed technical shape
 
-- Deploy the full Next.js Node service to Render and the backend to Convex.
+- Deploy Next.js through Vercel and the backend through Convex before starting product features.
 - Use Clerk development credentials and describe the deployment as a preview.
-- Use npm with a committed lockfile and pin Node `24.14.1` in `.node-version`.
-- Configure one Render Node Web Service in the dashboard. Use `npm ci && npx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd "npm run build"` to build and deploy, then `npm start` to run. Do not add `render.yaml` or a health endpoint today.
-- Keep `CONVEX_DEPLOY_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY` in Render. Keep `CLERK_JWT_ISSUER_DOMAIN` in the production Convex deployment. Commit an `.env.example`, ignore real environment files, and keep secrets out of diagnostics.
+- Use npm with a committed lockfile, select Node `24.x` on Vercel, and align `.node-version` with the tested local Node 24 patch.
+- Import the public GitHub repository into Vercel. Override its build command with `npx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd "npm run build"` so every successful deployment builds Next.js against and deploys the selected Convex backend.
+- Keep the production `CONVEX_DEPLOY_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY` in Vercel's Production environment. Keep `CLERK_JWT_ISSUER_DOMAIN` in the production Convex deployment. Commit an `.env.example`, ignore real environment files, and keep secrets out of diagnostics.
+- Treat issue #2 as a hard deployment gate: the public Vercel URL must prove Clerk sign-in/sign-out and a real Convex query before any product feature ticket starts.
 - Project authenticated Clerk identity into Convex with an idempotent client-triggered mutation. A Clerk webhook is a production follow-up.
 - Use `members`, `posts`, and `likes` tables. Enforce authorization, ownership, uniqueness, validation, counters, and cascading Like deletion inside Convex mutations.
 - Expose cohesive `Members` (`ensureCurrent`, `getProfile`) and `Posts` (`listFeed`, `listByMember`, `create`, `remove`, `toggleLike`) modules. Keep Like persistence internal to `Posts`; add no repository or speculative adapter layer.
@@ -57,7 +58,6 @@ Planning is confirmed and implementation is authorized. The implementation speci
 
 - Require semantic landmarks, keyboard operation, visible focus, labeled icon controls, sufficient contrast, reduced-motion support, and an accessible character counter.
 - Use Next.js error boundaries, safe structured backend diagnostics, and explicit retry states. Add no analytics or third-party monitoring today.
-- Render's free service may sleep when idle; warm the preview before presenting and document the limitation.
 - Use the supplied three-column shell at 1000px and wider, remove the context rail below 1000px, and use a sticky compact top bar below 800px.
 - Use a text-only `Still` wordmark in the reading typeface. Add no separate logo asset.
 - The desktop context rail contains one quiet “About Still” card describing the finite, live-updating Feed; it contains no trends, recommendations, rankings, or calls to action.
@@ -75,7 +75,7 @@ Planning is confirmed and implementation is authorized. The implementation speci
 
 Complete and verify one milestone before beginning the next. Update the handoff ledger and create one cohesive Git commit after each verified milestone.
 
-1. Scaffold the application and deploy a minimal authenticated shell through Clerk, Convex, and Render.
+1. Scaffold the application and deploy a minimal authenticated shell through Clerk, Convex, and Vercel. Product feature work begins only after the deployed integration is verified.
 2. Add the Post domain parser, Convex schema, deep module interfaces, and backend tests.
 3. Complete the reactive Feed, publishing, Likes, deletion, and Profiles as one vertical slice.
 4. Apply the selected design system, responsive behavior, accessibility, and immediate interaction feedback.
@@ -95,7 +95,7 @@ The final README briefly distinguishes human decisions from agent research, impl
 
 Update this section after every milestone so a fresh agent can resume without chat history.
 
-- Completed: product purpose, scope, language, stack, data ownership, reactive boundary, deployment posture, test strategy, interaction contract, visual system, responsive behavior, and implementation sequence agreed; specification #1 and tracer-bullet tickets #2–#9 published with `ready-for-agent` and verified native blockers.
+- Completed: product purpose, scope, language, stack, data ownership, reactive boundary, Vercel-first deployment gate, test strategy, interaction contract, visual system, responsive behavior, and implementation sequence agreed; specification #1 and tracer-bullet tickets #2–#9 published with `ready-for-agent` and verified native blockers.
 - Waiting on: issue #2, the only unblocked frontier ticket.
-- Next action: implement [issue #2](https://github.com/hzhuo-star/still/issues/2), the deployed authenticated Still shell.
-- Verification: issues #3–#9 report the approved blocker counts, issue #2 reports no blocker, and parent issue #1 remains open and unchanged; no application exists yet.
+- Next action: implement [issue #2](https://github.com/hzhuo-star/still/issues/2), the Vercel-deployed authenticated Still shell with a verified Convex query.
+- Verification: issues #3–#9 retain the approved blocker counts, issue #2 reports no blocker, and specification #1 plus affected tickets consistently require Vercel; no application exists yet.
