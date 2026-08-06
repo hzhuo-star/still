@@ -225,7 +225,11 @@ function ReplyForm({
 
   return (
     <form
-      aria-label={`Reply to ${target.author.displayName}`}
+      aria-label={
+        targetUnavailable
+          ? "Reply draft for unavailable Post"
+          : `Reply to ${target.author.displayName}`
+      }
       className="rounded-card border border-line bg-surface p-4"
       onSubmit={(event) => {
         event.preventDefault();
@@ -235,7 +239,9 @@ function ReplyForm({
       }}
     >
       <p className="mb-2 text-meta text-muted">
-        {`Replying to ${target.author.displayName}`}
+        {targetUnavailable
+          ? "Replying to an unavailable Post"
+          : `Replying to ${target.author.displayName}`}
       </p>
       <label className="sr-only" htmlFor={`reply-draft-${target.postId}`}>
         Write a Reply
