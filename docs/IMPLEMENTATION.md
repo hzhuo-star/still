@@ -14,7 +14,7 @@ For issue-tracker, triage-label, and domain-document conventions, read the relev
 
 ## Status
 
-Planning is confirmed and implementation is authorized. The implementation specification is published as [GitHub issue #1](https://github.com/hzhuo-star/still/issues/1) with the `ready-for-agent` label.
+Planning is confirmed and implementation is authorized. The implementation specification is published as [GitHub issue #1](https://github.com/hzhuo-star/still/issues/1); tracer-bullet implementation tickets are published as issues #2–#9 with native blocking relationships.
 
 ## Agreed product boundary
 
@@ -95,7 +95,7 @@ The final README briefly distinguishes human decisions from agent research, impl
 
 Update this section after every milestone so a fresh agent can resume without chat history.
 
-- Completed: product purpose, scope, language, stack, data ownership, reactive boundary, deployment posture, test strategy, interaction contract, visual system, responsive behavior, and implementation sequence agreed; specification published and labeled `ready-for-agent`.
-- Waiting on: implementation milestone 1.
-- Next action: scaffold the application and deploy a minimal authenticated shell through Clerk, Convex, and Render.
-- Verification: the public repository and issue tracker are configured; no application exists yet.
+- Completed: product purpose, scope, language, stack, data ownership, reactive boundary, deployment posture, test strategy, interaction contract, visual system, responsive behavior, and implementation sequence agreed; specification #1 and tracer-bullet tickets #2–#9 published with `ready-for-agent` and verified native blockers.
+- Waiting on: issue #2, the only unblocked frontier ticket.
+- Next action: implement [issue #2](https://github.com/hzhuo-star/still/issues/2), the deployed authenticated Still shell.
+- Verification: issues #3–#9 report the approved blocker counts, issue #2 reports no blocker, and parent issue #1 remains open and unchanged; no application exists yet.
