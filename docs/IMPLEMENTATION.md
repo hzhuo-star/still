@@ -14,7 +14,7 @@ For issue-tracker, triage-label, and domain-document conventions, read the relev
 
 ## Status
 
-Planning is complete. Implementation begins only after the user confirms the shared understanding summarized in this document.
+Planning is confirmed and implementation is authorized. The implementation specification is published as [GitHub issue #1](https://github.com/hzhuo-star/still/issues/1) with the `ready-for-agent` label.
 
 ## Agreed product boundary
 
@@ -95,7 +95,7 @@ The final README briefly distinguishes human decisions from agent research, impl
 
 Update this section after every milestone so a fresh agent can resume without chat history.
 
-- Completed: product purpose, scope, language, stack, data ownership, reactive boundary, deployment posture, test strategy, interaction contract, visual system, responsive behavior, and implementation sequence agreed.
-- Waiting on: final shared-understanding confirmation.
-- Next action: present the complete consensus and request explicit approval. Do not scaffold or implement yet.
-- Verification: documentation only; no application exists yet.
+- Completed: product purpose, scope, language, stack, data ownership, reactive boundary, deployment posture, test strategy, interaction contract, visual system, responsive behavior, and implementation sequence agreed; specification published and labeled `ready-for-agent`.
+- Waiting on: implementation milestone 1.
+- Next action: scaffold the application and deploy a minimal authenticated shell through Clerk, Convex, and Render.
+- Verification: the public repository and issue tracker are configured; no application exists yet.
