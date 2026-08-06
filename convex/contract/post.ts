@@ -32,6 +32,8 @@ const postViewFields = {
   activeRepostCount: v.number(),
   /** Whether the current viewer has Liked the Post. */
   viewerHasLiked: v.boolean(),
+  /** Whether the current viewer has Reposted the Post. */
+  viewerHasReposted: v.boolean(),
   /** Whether the current viewer may delete the Post. */
   viewerCanDelete: v.boolean(),
   /** The Post author's projected public identity. */
@@ -73,14 +75,49 @@ const quotePostViewValidator = v.object({
   referencedPostId: v.id("posts"),
 });
 
-/** The complete immutable display model for one active authored Post. */
-export const postViewValidator = v.union(
+/** The complete immutable display model for one active Standalone Post. */
+export type StandalonePostView = Readonly<
+  Infer<typeof standalonePostViewValidator>
+>;
+
+/** A complete immutable display model for one active authored Post. */
+export const authoredPostViewValidator = v.union(
   standalonePostViewValidator,
   replyPostViewValidator,
   quotePostViewValidator,
 );
 
-/** The complete immutable display model for one active authored Post. */
+/** A complete immutable display model for one active authored Post. */
+export type AuthoredPostView = Readonly<
+  Infer<typeof authoredPostViewValidator>
+>;
+
+/** The immutable display model for one Repost and its shallow source. */
+export const repostPostViewValidator = v.object({
+  /** The Repost wrapper's canonical identifier. */
+  postId: v.id("posts"),
+  /** The explicit distribution-record kind. */
+  kind: v.literal("repost"),
+  /** Repost time in milliseconds since the Unix epoch. */
+  publishedAt: v.number(),
+  /** Whether the current viewer may remove this Repost wrapper. */
+  viewerCanRemove: v.boolean(),
+  /** The reposter's projected public identity. */
+  author: memberProfileValidator,
+  /** The live, non-recursive ultimate source display. */
+  source: authoredPostViewValidator,
+});
+
+/** The immutable display model for one Repost and its shallow source. */
+export type RepostPostView = Readonly<Infer<typeof repostPostViewValidator>>;
+
+/** A complete immutable display model for one Feed or Profile item. */
+export const postViewValidator = v.union(
+  authoredPostViewValidator,
+  repostPostViewValidator,
+);
+
+/** A complete immutable display model for one Feed or Profile item. */
 export type PostView = Readonly<Infer<typeof postViewValidator>>;
 
 const standaloneTombstoneViewValidator = v.object({
@@ -118,7 +155,7 @@ export type PostTombstoneView = Readonly<
 
 /** One active Post or structural Post Tombstone in a Conversation. */
 export const conversationEntryValidator = v.union(
-  v.object({ _tag: v.literal("active"), post: postViewValidator }),
+  v.object({ _tag: v.literal("active"), post: authoredPostViewValidator }),
   v.object({ _tag: v.literal("tombstone"), post: postTombstoneViewValidator }),
 );
 
@@ -228,11 +265,31 @@ export const toggleLikeOutcomeValidator = v.union(
   }),
   v.object({ _tag: v.literal("unauthenticated") }),
   v.object({ _tag: v.literal("post-not-found") }),
+  v.object({ _tag: v.literal("post-unavailable") }),
 );
 
 /** The outcome of toggling the acting Member's Like on a Post. */
 export type ToggleLikeOutcome = Readonly<
   Infer<typeof toggleLikeOutcomeValidator>
+>;
+
+/** The outcome of toggling the acting Member's Repost of an ultimate source. */
+export const toggleRepostOutcomeValidator = v.union(
+  v.object({
+    _tag: v.literal("ok"),
+    /** The viewer's Repost state after the toggle. */
+    state: v.union(v.literal("reposted"), v.literal("not-reposted")),
+    /** The ultimate source's active Repost count after the toggle. */
+    activeRepostCount: v.number(),
+  }),
+  v.object({ _tag: v.literal("unauthenticated") }),
+  v.object({ _tag: v.literal("post-not-found") }),
+  v.object({ _tag: v.literal("post-unavailable") }),
+);
+
+/** The outcome of toggling the acting Member's Repost of an ultimate source. */
+export type ToggleRepostOutcome = Readonly<
+  Infer<typeof toggleRepostOutcomeValidator>
 >;
 
 /** The outcome of removing a Post. */

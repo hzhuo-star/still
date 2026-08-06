@@ -11,6 +11,7 @@ import {
   postListValidator,
   removePostOutcomeValidator,
   toggleLikeOutcomeValidator,
+  toggleRepostOutcomeValidator,
 } from "./contract/post";
 import * as Posts from "./model/posts";
 
@@ -64,6 +65,16 @@ export const toggleLike = mutation({
   },
   returns: toggleLikeOutcomeValidator,
   handler: async (ctx, args) => await Posts.toggleLike(ctx, args.postId),
+});
+
+/** Repost or stop Reposting an ultimate source as the authenticated Member. */
+export const toggleRepost = mutation({
+  args: {
+    /** The selected Post; Repost wrappers normalize to their source. */
+    postId: v.id("posts"),
+  },
+  returns: toggleRepostOutcomeValidator,
+  handler: async (ctx, args) => await Posts.toggleRepost(ctx, args.postId),
 });
 
 /** Delete a Post the authenticated Member authored. */

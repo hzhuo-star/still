@@ -5,15 +5,15 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { useState } from "react";
 
 import { api } from "../../convex/_generated/api";
-import type { PostView } from "../../convex/contract/post";
+import type { AuthoredPostView, PostView } from "../../convex/contract/post";
 import { casesHandled } from "../../convex/lib/result";
 
 type LikeButtonProps = {
   /** The Post whose Like state this control toggles. */
-  readonly post: PostView;
+  readonly post: AuthoredPostView;
 };
 
-function describeLikes(post: PostView): string {
+function describeLikes(post: AuthoredPostView): string {
   return `${post.likeCount} ${post.likeCount === 1 ? "like" : "likes"}`;
 }
 
@@ -31,7 +31,7 @@ export function LikeButton({ post }: LikeButtonProps) {
 
   const toggleLike = useMutation(api.posts.toggleLike).withOptimisticUpdate(
     (localStore, args) => {
-      const flip = (view: PostView): PostView =>
+      const flipSource = (view: AuthoredPostView): AuthoredPostView =>
         view.postId === args.postId
           ? {
               ...view,
@@ -39,6 +39,10 @@ export function LikeButton({ post }: LikeButtonProps) {
               likeCount: view.likeCount + (view.viewerHasLiked ? -1 : 1),
             }
           : view;
+      const flip = (view: PostView): PostView =>
+        view.kind === "repost"
+          ? { ...view, source: flipSource(view.source) }
+          : flipSource(view);
 
       const feed = localStore.getQuery(api.posts.listFeed, {});
       if (feed !== undefined) {
@@ -66,7 +70,9 @@ export function LikeButton({ post }: LikeButtonProps) {
           const flipEntry = (
             item: (typeof entry.value.replies)[number],
           ): (typeof entry.value.replies)[number] =>
-            item._tag === "active" ? { ...item, post: flip(item.post) } : item;
+            item._tag === "active"
+              ? { ...item, post: flipSource(item.post) }
+              : item;
 
           localStore.setQuery(api.posts.getConversation, entry.args, {
             ...entry.value,
@@ -122,6 +128,9 @@ export function LikeButton({ post }: LikeButtonProps) {
           return;
         case "post-not-found":
           setFeedback("This Post was deleted.");
+          return;
+        case "post-unavailable":
+          setFeedback("This Post is no longer available.");
           return;
         default:
           casesHandled(outcome);

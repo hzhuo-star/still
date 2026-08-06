@@ -107,7 +107,8 @@ const schema = defineSchema({
     .index("by_authorId", ["authorId"])
     .index("by_state_and_kind", ["state", "kind"])
     .index("by_authorId_and_state_and_kind", ["authorId", "state", "kind"])
-    .index("by_conversationRootId", ["conversationRootId"]),
+    .index("by_conversationRootId", ["conversationRootId"])
+    .index("by_sourcePostId_and_authorId", ["sourcePostId", "authorId"]),
 
   likes: defineTable({
     /** The Member who Liked the Post. */

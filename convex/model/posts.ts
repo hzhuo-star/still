@@ -9,10 +9,12 @@ import {
   type CreateReplyOutcome,
   type GetConversationOutcome,
   type ListByMemberOutcome,
+  type AuthoredPostView,
   type PostList,
   type PostView,
   type RemovePostOutcome,
   type ToggleLikeOutcome,
+  type ToggleRepostOutcome,
 } from "../contract/post";
 import { shouldNeverHappen } from "../lib/result";
 import { currentMemberId, ensureCurrent, getProfile } from "./members";
@@ -22,6 +24,41 @@ async function toPostView(
   post: Doc<"posts">,
   viewerId: Doc<"members">["_id"] | null,
 ): Promise<PostView> {
+  if ("kind" in post && post.kind === "repost") {
+    const source = await ctx.db.get("posts", post.sourcePostId);
+
+    if (source === null) {
+      return shouldNeverHappen(
+        "Active Repost source missing; source removal must cascade wrappers",
+      );
+    }
+
+    const authorOutcome = await getProfile(ctx, post.authorId);
+    const author =
+      authorOutcome._tag === "ok"
+        ? authorOutcome.profile
+        : shouldNeverHappen(
+            "Repost author missing; Member deletion is out of scope",
+          );
+
+    return {
+      postId: post._id,
+      kind: "repost",
+      publishedAt: post._creationTime,
+      viewerCanRemove: viewerId === post.authorId,
+      author,
+      source: await toAuthoredPostView(ctx, source, viewerId),
+    };
+  }
+
+  return await toAuthoredPostView(ctx, post, viewerId);
+}
+
+async function toAuthoredPostView(
+  ctx: QueryCtx,
+  post: Doc<"posts">,
+  viewerId: Doc<"members">["_id"] | null,
+): Promise<AuthoredPostView> {
   if (
     ("state" in post && post.state === "deleted") ||
     ("kind" in post && post.kind === "repost")
@@ -47,6 +84,16 @@ async function toPostView(
           )
           .unique();
 
+  const repost =
+    viewerId === null
+      ? null
+      : await ctx.db
+          .query("posts")
+          .withIndex("by_sourcePostId_and_authorId", (q) =>
+            q.eq("sourcePostId", post._id).eq("authorId", viewerId),
+          )
+          .unique();
+
   if (!("kind" in post)) {
     return {
       postId: post._id,
@@ -57,6 +104,7 @@ async function toPostView(
       activeReplyCount: 0,
       activeRepostCount: 0,
       viewerHasLiked: like !== null,
+      viewerHasReposted: repost !== null,
       viewerCanDelete: viewerId === post.authorId,
       author,
     };
@@ -70,6 +118,7 @@ async function toPostView(
     activeReplyCount: post.activeReplyCount,
     activeRepostCount: post.activeRepostCount,
     viewerHasLiked: like !== null,
+    viewerHasReposted: repost !== null,
     viewerCanDelete: viewerId === post.authorId,
     author,
   };
@@ -167,7 +216,13 @@ async function toConversationEntry(
   if ("state" in post && post.state === "deleted") {
     return toTombstoneEntry(post);
   }
-  return { _tag: "active", post: await toPostView(ctx, post, viewerId) };
+  if ("kind" in post && post.kind === "repost") {
+    return shouldNeverHappen("Repost wrappers are not Conversation entries");
+  }
+  return {
+    _tag: "active",
+    post: await toAuthoredPostView(ctx, post, viewerId),
+  };
 }
 
 function mergeNewest(
@@ -202,11 +257,18 @@ async function toBoundedList(
  */
 export async function listFeed(ctx: QueryCtx): Promise<PostList> {
   const viewerId = await currentMemberId(ctx);
-  const [explicitPosts, legacyPosts] = await Promise.all([
+  const [standalonePosts, reposts, legacyPosts] = await Promise.all([
     ctx.db
       .query("posts")
       .withIndex("by_state_and_kind", (q) =>
         q.eq("state", "active").eq("kind", "standalone"),
+      )
+      .order("desc")
+      .take(FEED_LIMIT + 1),
+    ctx.db
+      .query("posts")
+      .withIndex("by_state_and_kind", (q) =>
+        q.eq("state", "active").eq("kind", "repost"),
       )
       .order("desc")
       .take(FEED_LIMIT + 1),
@@ -218,7 +280,7 @@ export async function listFeed(ctx: QueryCtx): Promise<PostList> {
       .order("desc")
       .take(FEED_LIMIT + 1),
   ]);
-  const page = mergeNewest(explicitPosts, legacyPosts);
+  const page = mergeNewest(standalonePosts, reposts, legacyPosts);
 
   return await toBoundedList(ctx, page, viewerId);
 }
@@ -241,7 +303,7 @@ export async function listByMember(
   }
 
   const viewerId = await currentMemberId(ctx);
-  const [standalonePosts, replyPosts, quotePosts, legacyPosts] =
+  const [standalonePosts, replyPosts, quotePosts, reposts, legacyPosts] =
     await Promise.all([
       ctx.db
         .query("posts")
@@ -278,6 +340,16 @@ export async function listByMember(
         .withIndex("by_authorId_and_state_and_kind", (q) =>
           q
             .eq("authorId", profile.profile.memberId)
+            .eq("state", "active")
+            .eq("kind", "repost"),
+        )
+        .order("desc")
+        .take(FEED_LIMIT + 1),
+      ctx.db
+        .query("posts")
+        .withIndex("by_authorId_and_state_and_kind", (q) =>
+          q
+            .eq("authorId", profile.profile.memberId)
             .eq("state", undefined)
             .eq("kind", undefined),
         )
@@ -288,6 +360,7 @@ export async function listByMember(
     standalonePosts,
     replyPosts,
     quotePosts,
+    reposts,
     legacyPosts,
   );
 
@@ -328,6 +401,51 @@ export async function create(
   });
 
   return { _tag: "ok", postId };
+}
+
+type RepostRecord = Extract<Doc<"posts">, { readonly kind: "repost" }>;
+type DeletedPostRecord = Extract<Doc<"posts">, { readonly state: "deleted" }>;
+type EngagementPostRecord = Exclude<
+  Doc<"posts">,
+  RepostRecord | DeletedPostRecord
+>;
+
+type ActionTargetOutcome =
+  | { readonly _tag: "ok"; readonly post: EngagementPostRecord }
+  | { readonly _tag: "post-not-found" }
+  | { readonly _tag: "post-unavailable" };
+
+async function resolveActionTarget(
+  ctx: MutationCtx,
+  postId: Doc<"posts">["_id"],
+): Promise<ActionTargetOutcome> {
+  const selected = await ctx.db.get("posts", postId);
+
+  if (selected === null) {
+    return { _tag: "post-not-found" };
+  }
+
+  let source = selected;
+  const visited = new Set<Doc<"posts">["_id"]>();
+
+  while ("kind" in source && source.kind === "repost") {
+    if (visited.has(source._id)) {
+      return shouldNeverHappen("Repost source chain contains a cycle");
+    }
+    visited.add(source._id);
+
+    const next = await ctx.db.get("posts", source.sourcePostId);
+    if (next === null) {
+      return { _tag: "post-not-found" };
+    }
+    source = next;
+  }
+
+  if ("state" in source && source.state === "deleted") {
+    return { _tag: "post-unavailable" };
+  }
+
+  return { _tag: "ok", post: source };
 }
 
 /**
@@ -486,18 +604,12 @@ export async function toggleLike(
     return member;
   }
 
-  const post = await ctx.db.get("posts", postId);
+  const target = await resolveActionTarget(ctx, postId);
 
-  if (post === null) {
-    return { _tag: "post-not-found" };
+  if (target._tag !== "ok") {
+    return target;
   }
-
-  if (
-    ("state" in post && post.state === "deleted") ||
-    ("kind" in post && post.kind === "repost")
-  ) {
-    return { _tag: "post-not-found" };
-  }
+  const post = target.post;
 
   const existing = await ctx.db
     .query("likes")
@@ -520,6 +632,70 @@ export async function toggleLike(
   const likeCount = post.likeCount - 1;
   await ctx.db.patch("posts", post._id, { likeCount });
   return { _tag: "ok", state: "unliked", likeCount };
+}
+
+/**
+ * Toggle the authenticated Member's Repost of an ultimate source.
+ *
+ * @param ctx - The Convex mutation context.
+ * @param postId - The selected Post, normalized before persistence.
+ * @returns The new Repost state and count, or a precise expected failure.
+ */
+export async function toggleRepost(
+  ctx: MutationCtx,
+  postId: Doc<"posts">["_id"],
+): Promise<ToggleRepostOutcome> {
+  const member = await ensureCurrent(ctx);
+
+  if (member._tag === "unauthenticated") {
+    return member;
+  }
+
+  const target = await resolveActionTarget(ctx, postId);
+
+  if (target._tag !== "ok") {
+    return target;
+  }
+  const source = target.post;
+
+  const existing = await ctx.db
+    .query("posts")
+    .withIndex("by_sourcePostId_and_authorId", (q) =>
+      q.eq("sourcePostId", source._id).eq("authorId", member.memberId),
+    )
+    .unique();
+  const currentCount = "kind" in source ? source.activeRepostCount : 0;
+
+  if (existing !== null) {
+    await ctx.db.delete("posts", existing._id);
+    const activeRepostCount = currentCount - 1;
+    if (activeRepostCount < 0) {
+      return shouldNeverHappen("Active Repost count cannot become negative");
+    }
+    await ctx.db.patch("posts", source._id, { activeRepostCount });
+    return { _tag: "ok", state: "not-reposted", activeRepostCount };
+  }
+
+  await ctx.db.insert("posts", {
+    state: "active",
+    kind: "repost",
+    authorId: member.memberId,
+    sourcePostId: source._id,
+  });
+  const activeRepostCount = currentCount + 1;
+
+  if (!("kind" in source)) {
+    await ctx.db.patch("posts", source._id, {
+      state: "active",
+      kind: "standalone",
+      activeReplyCount: 0,
+      activeRepostCount,
+    });
+  } else {
+    await ctx.db.patch("posts", source._id, { activeRepostCount });
+  }
+
+  return { _tag: "ok", state: "reposted", activeRepostCount };
 }
 
 /**
@@ -553,17 +729,28 @@ export async function remove(
     return { _tag: "forbidden" };
   }
 
+  if ("kind" in post && post.kind === "repost") {
+    const source = await ctx.db.get("posts", post.sourcePostId);
+    await ctx.db.delete("posts", post._id);
+
+    if (source !== null && (!("kind" in source) || source.kind !== "repost")) {
+      const activeRepostCount =
+        ("kind" in source ? source.activeRepostCount : 0) - 1;
+      if (activeRepostCount < 0) {
+        return shouldNeverHappen("Active Repost count cannot become negative");
+      }
+      await ctx.db.patch("posts", source._id, { activeRepostCount });
+    }
+
+    return { _tag: "ok" };
+  }
+
   const likes = ctx.db
     .query("likes")
     .withIndex("by_postId_and_memberId", (q) => q.eq("postId", post._id));
 
   for await (const like of likes) {
     await ctx.db.delete("likes", like._id);
-  }
-
-  if ("kind" in post && post.kind === "repost") {
-    await ctx.db.delete("posts", post._id);
-    return { _tag: "ok" };
   }
 
   if ("kind" in post && post.kind === "reply") {
@@ -573,6 +760,16 @@ export async function remove(
         activeReplyCount: Math.max(0, parent.activeReplyCount - 1),
       });
     }
+  }
+
+  const reposts = ctx.db
+    .query("posts")
+    .withIndex("by_sourcePostId_and_authorId", (q) =>
+      q.eq("sourcePostId", post._id),
+    );
+
+  for await (const repost of reposts) {
+    await ctx.db.delete("posts", repost._id);
   }
 
   if (!("kind" in post)) {
@@ -587,14 +784,14 @@ export async function remove(
       state: "deleted",
       kind: post.kind,
       activeReplyCount: post.activeReplyCount,
-      activeRepostCount: post.activeRepostCount,
+      activeRepostCount: 0,
     });
   } else if (post.kind === "reply") {
     await ctx.db.replace("posts", post._id, {
       state: "deleted",
       kind: post.kind,
       activeReplyCount: post.activeReplyCount,
-      activeRepostCount: post.activeRepostCount,
+      activeRepostCount: 0,
       parentPostId: post.parentPostId,
       conversationRootId: post.conversationRootId,
     });
@@ -603,7 +800,7 @@ export async function remove(
       state: "deleted",
       kind: post.kind,
       activeReplyCount: post.activeReplyCount,
-      activeRepostCount: post.activeRepostCount,
+      activeRepostCount: 0,
       referencedPostId: post.referencedPostId,
     });
   }

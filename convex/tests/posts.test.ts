@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import { api, internal } from "../_generated/api";
 import type { DataModel, Id } from "../_generated/dataModel";
+import type { PostView, StandalonePostView } from "../contract/post";
 import schema from "../schema";
 
 const modules = import.meta.glob("../**/*.ts");
@@ -14,6 +15,14 @@ function newBackend(): TestConvex<typeof schema> {
   const backend = convexTest(schema, modules);
   migrationsTest.register(backend);
   return backend;
+}
+
+function standalonePosts(
+  posts: ReadonlyArray<PostView>,
+): ReadonlyArray<StandalonePostView> {
+  return posts.filter(
+    (post): post is StandalonePostView => post.kind === "standalone",
+  );
 }
 
 const aliceIdentity = {
@@ -118,7 +127,9 @@ describe("Posts.create", () => {
 
     const feed = await backend.query(api.posts.listFeed, {});
     expect(feed.posts).toHaveLength(1);
-    expect(feed.posts[0]?.content).toBe("First line.\n\n  Second line.");
+    expect(standalonePosts(feed.posts)[0]?.content).toBe(
+      "First line.\n\n  Second line.",
+    );
   });
 
   test("publishes a Post with author identity and zero Likes", async () => {
@@ -491,7 +502,7 @@ describe("Reply lifecycle across public Posts operations", () => {
       backend
         .withIdentity(aliceIdentity)
         .mutation(api.posts.toggleLike, { postId: replyPostId }),
-    ).resolves.toEqual({ _tag: "post-not-found" });
+    ).resolves.toEqual({ _tag: "post-unavailable" });
 
     const conversation = await backend.query(api.posts.getConversation, {
       postId: replyPostId,
@@ -572,14 +583,16 @@ describe("Posts.listFeed", () => {
 
     const feed = await backend.query(api.posts.listFeed, {});
 
-    expect(feed.posts.map((post) => post.content)).toEqual([
+    expect(standalonePosts(feed.posts).map((post) => post.content)).toEqual([
       "Third",
       "Second",
       "First",
     ]);
     expect(feed.ending).toBe("complete");
     expect(
-      feed.posts.every((post) => !post.viewerHasLiked && !post.viewerCanDelete),
+      standalonePosts(feed.posts).every(
+        (post) => !post.viewerHasLiked && !post.viewerCanDelete,
+      ),
     ).toBe(true);
   });
 
@@ -691,8 +704,8 @@ describe("Posts.listFeed", () => {
 
     expect(feed.posts).toHaveLength(50);
     expect(feed.ending).toBe("truncated");
-    expect(feed.posts[0]?.content).toBe("Post 51");
-    expect(feed.posts[49]?.content).toBe("Post 2");
+    expect(standalonePosts(feed.posts)[0]?.content).toBe("Post 51");
+    expect(standalonePosts(feed.posts)[49]?.content).toBe("Post 2");
   });
 });
 
@@ -741,7 +754,7 @@ describe("Posts.toggleLike", () => {
     expect(outcome).toEqual({ _tag: "unauthenticated" });
   });
 
-  test("reports a missing Post", async () => {
+  test("reports a Post Tombstone as unavailable", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Ephemeral.");
     await backend
@@ -752,7 +765,7 @@ describe("Posts.toggleLike", () => {
       .withIdentity(benIdentity)
       .mutation(api.posts.toggleLike, { postId });
 
-    expect(outcome).toEqual({ _tag: "post-not-found" });
+    expect(outcome).toEqual({ _tag: "post-unavailable" });
   });
 
   test("creates and removes a Like with a consistent count", async () => {
@@ -794,7 +807,7 @@ describe("Posts.toggleLike", () => {
     expect(likes).toHaveLength(1);
 
     const feed = await backend.query(api.posts.listFeed, {});
-    expect(feed.posts[0]?.likeCount).toBe(1);
+    expect(standalonePosts(feed.posts)[0]?.likeCount).toBe(1);
   });
 
   test("counts Likes from independent Members separately", async () => {
@@ -826,6 +839,253 @@ describe("Posts.toggleLike", () => {
     expect(afterBenUnliked.posts[0]).toMatchObject({
       likeCount: 1,
       viewerHasLiked: true,
+    });
+  });
+});
+
+describe("Posts.toggleRepost", () => {
+  test("returns unauthenticated for a signed-out caller", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "Worth sharing.");
+
+    const outcome = await backend.mutation(api.posts.toggleRepost, { postId });
+
+    expect(outcome).toEqual({ _tag: "unauthenticated" });
+  });
+
+  test("creates and reverses a self-Repost with one source count", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "Share my thought.");
+    const asAlice = backend.withIdentity(aliceIdentity);
+
+    const created = await asAlice.mutation(api.posts.toggleRepost, { postId });
+    expect(created).toEqual({
+      _tag: "ok",
+      state: "reposted",
+      activeRepostCount: 1,
+    });
+
+    const repostedFeed = await asAlice.query(api.posts.listFeed, {});
+    expect(repostedFeed.posts).toHaveLength(2);
+    expect(repostedFeed.posts[0]).toMatchObject({
+      kind: "repost",
+      author: { displayName: "Alice Reader" },
+      source: {
+        postId,
+        kind: "standalone",
+        content: "Share my thought.",
+        activeRepostCount: 1,
+        viewerHasReposted: true,
+        author: { displayName: "Alice Reader" },
+      },
+    });
+    expect(repostedFeed.posts[1]).toMatchObject({
+      postId,
+      kind: "standalone",
+      activeRepostCount: 1,
+      viewerHasReposted: true,
+    });
+
+    const removed = await asAlice.mutation(api.posts.toggleRepost, { postId });
+    expect(removed).toEqual({
+      _tag: "ok",
+      state: "not-reposted",
+      activeRepostCount: 0,
+    });
+
+    const restoredFeed = await asAlice.query(api.posts.listFeed, {});
+    expect(restoredFeed.posts).toHaveLength(1);
+    expect(restoredFeed.posts[0]).toMatchObject({
+      postId,
+      activeRepostCount: 0,
+      viewerHasReposted: false,
+    });
+  });
+
+  test("normalizes Repost and Like actions through a selected Repost", async () => {
+    const backend = newBackend();
+    const sourcePostId = await publish(
+      backend,
+      aliceIdentity,
+      "One identity for every action.",
+    );
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    const feed = await backend.query(api.posts.listFeed, {});
+    const wrapper = feed.posts.find((post) => post.kind === "repost");
+    expect(wrapper).toBeDefined();
+    if (wrapper === undefined) {
+      return;
+    }
+
+    const reposted = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleRepost, { postId: wrapper.postId });
+    expect(reposted).toEqual({
+      _tag: "ok",
+      state: "reposted",
+      activeRepostCount: 2,
+    });
+
+    const liked = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleLike, { postId: wrapper.postId });
+    expect(liked).toEqual({ _tag: "ok", state: "liked", likeCount: 1 });
+
+    const asBen = await backend
+      .withIdentity(benIdentity)
+      .query(api.posts.listFeed, {});
+    const source = asBen.posts.find((post) => post.postId === sourcePostId);
+    expect(source).toMatchObject({
+      kind: "standalone",
+      activeRepostCount: 2,
+      likeCount: 1,
+      viewerHasLiked: true,
+      viewerHasReposted: true,
+    });
+    const wrappers = await backend.run(async (ctx) =>
+      ctx.db
+        .query("posts")
+        .withIndex("by_sourcePostId_and_authorId", (q) =>
+          q.eq("sourcePostId", sourcePostId),
+        )
+        .collect(),
+    );
+    expect(wrappers).toHaveLength(2);
+    expect(
+      wrappers.every(
+        (post) =>
+          "kind" in post &&
+          post.kind === "repost" &&
+          post.sourcePostId === sourcePostId,
+      ),
+    ).toBe(true);
+  });
+
+  test("reports a selected Post Tombstone without creating a wrapper", async () => {
+    const backend = newBackend();
+    const postId = await publish(
+      backend,
+      aliceIdentity,
+      "Gone before sharing.",
+    );
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.remove, { postId });
+
+    const outcome = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleRepost, { postId });
+
+    expect(outcome).toEqual({ _tag: "post-unavailable" });
+  });
+
+  test("Reposting a legacy source preserves it as an explicit Standalone Post", async () => {
+    const backend = newBackend();
+    const aliceMemberId = await ensureMember(backend, aliceIdentity);
+    const legacyPostId = await backend.run(async (ctx) =>
+      ctx.db.insert("posts", {
+        authorId: aliceMemberId,
+        content: "Published before relational Posts.",
+        likeCount: 0,
+      }),
+    );
+
+    const outcome = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleRepost, { postId: legacyPostId });
+    expect(outcome).toEqual({
+      _tag: "ok",
+      state: "reposted",
+      activeRepostCount: 1,
+    });
+
+    const storedSource = await backend.run(async (ctx) =>
+      ctx.db.get("posts", legacyPostId),
+    );
+    expect(storedSource).toMatchObject({
+      state: "active",
+      kind: "standalone",
+      content: "Published before relational Posts.",
+      activeReplyCount: 0,
+      activeRepostCount: 1,
+    });
+  });
+
+  test("serializes concurrent toggles without duplicate wrappers or counts", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "Share exactly once.");
+    const asBen = backend.withIdentity(benIdentity);
+
+    await Promise.all([
+      asBen.mutation(api.posts.toggleRepost, { postId }),
+      asBen.mutation(api.posts.toggleRepost, { postId }),
+      asBen.mutation(api.posts.toggleRepost, { postId }),
+    ]);
+
+    const wrappers = await backend.run(async (ctx) =>
+      ctx.db
+        .query("posts")
+        .withIndex("by_sourcePostId_and_authorId", (q) =>
+          q.eq("sourcePostId", postId),
+        )
+        .collect(),
+    );
+    expect(wrappers).toHaveLength(1);
+    const feed = await asBen.query(api.posts.listFeed, {});
+    const source = feed.posts.find((post) => post.postId === postId);
+    expect(source).toMatchObject({
+      kind: "standalone",
+      activeRepostCount: 1,
+      viewerHasReposted: true,
+    });
+  });
+
+  test("exposes reposter and source attribution in public Feed and Profile reads", async () => {
+    const backend = newBackend();
+    const sourcePostId = await publish(
+      backend,
+      aliceIdentity,
+      "The source keeps its author.",
+    );
+    const benMemberId = await ensureMember(backend, benIdentity);
+    await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    const repost = feed.posts.find((post) => post.kind === "repost");
+    expect(repost).toMatchObject({
+      kind: "repost",
+      author: { displayName: "Ben Quiet", memberId: benMemberId },
+      viewerCanRemove: false,
+      source: {
+        postId: sourcePostId,
+        content: "The source keeps its author.",
+        viewerHasReposted: false,
+        author: { displayName: "Alice Reader" },
+      },
+    });
+    if (repost === undefined || repost.kind !== "repost") {
+      return;
+    }
+    expect(repost.publishedAt).toBeGreaterThanOrEqual(
+      repost.source.publishedAt,
+    );
+
+    const profile = await backend.query(api.posts.listByMember, {
+      memberId: benMemberId,
+    });
+    expect(profile).toMatchObject({
+      _tag: "ok",
+      posts: [
+        expect.objectContaining({
+          kind: "repost",
+          author: expect.objectContaining({ memberId: benMemberId }),
+          source: expect.objectContaining({ postId: sourcePostId }),
+        }),
+      ],
     });
   });
 });
@@ -893,6 +1153,74 @@ describe("Posts.remove", () => {
     expect(remainingLikes).toHaveLength(1);
     expect(remainingLikes[0]?.postId).toBe(keptId);
   });
+
+  test("deleting a source removes every Repost wrapper", async () => {
+    const backend = newBackend();
+    const sourcePostId = await publish(
+      backend,
+      aliceIdentity,
+      "Delete the source everywhere.",
+    );
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+
+    const outcome = await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.remove, { postId: sourcePostId });
+    expect(outcome).toEqual({ _tag: "ok" });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(feed.posts).toEqual([]);
+    const remainingWrappers = await backend.run(async (ctx) =>
+      ctx.db
+        .query("posts")
+        .withIndex("by_sourcePostId_and_authorId", (q) =>
+          q.eq("sourcePostId", sourcePostId),
+        )
+        .collect(),
+    );
+    expect(remainingWrappers).toEqual([]);
+  });
+
+  test("only the reposter may remove a wrapper and removal decrements its source", async () => {
+    const backend = newBackend();
+    const sourcePostId = await publish(
+      backend,
+      aliceIdentity,
+      "Ben controls Ben's distribution.",
+    );
+    await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    const feed = await backend.query(api.posts.listFeed, {});
+    const wrapper = feed.posts.find((post) => post.kind === "repost");
+    expect(wrapper).toBeDefined();
+    if (wrapper === undefined) {
+      return;
+    }
+
+    const forbidden = await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.remove, { postId: wrapper.postId });
+    expect(forbidden).toEqual({ _tag: "forbidden" });
+
+    const removed = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.remove, { postId: wrapper.postId });
+    expect(removed).toEqual({ _tag: "ok" });
+    const restoredFeed = await backend.query(api.posts.listFeed, {});
+    expect(restoredFeed.posts).toEqual([
+      expect.objectContaining({
+        postId: sourcePostId,
+        kind: "standalone",
+        activeRepostCount: 0,
+      }),
+    ]);
+  });
 });
 
 describe("Posts.listByMember", () => {
@@ -929,7 +1257,7 @@ describe("Posts.listByMember", () => {
     if (outcome._tag !== "ok") {
       return;
     }
-    expect(outcome.posts.map((post) => post.content)).toEqual([
+    expect(standalonePosts(outcome.posts).map((post) => post.content)).toEqual([
       "Alice two",
       "Alice one",
     ]);
