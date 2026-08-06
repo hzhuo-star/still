@@ -8,9 +8,12 @@
  * @module
  */
 
+import type * as memberContract from "../memberContract.js";
 import type * as members from "../members.js";
+import type * as model_members from "../model/members.js";
+import type * as model_posts from "../model/posts.js";
 import type * as postContent from "../postContent.js";
-import type * as postList from "../postList.js";
+import type * as postContract from "../postContract.js";
 import type * as posts from "../posts.js";
 import type * as result from "../result.js";
 import type * as status from "../status.js";
@@ -22,9 +25,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  memberContract: typeof memberContract;
   members: typeof members;
+  "model/members": typeof model_members;
+  "model/posts": typeof model_posts;
   postContent: typeof postContent;
-  postList: typeof postList;
+  postContract: typeof postContract;
   posts: typeof posts;
   result: typeof result;
   status: typeof status;

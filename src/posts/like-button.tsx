@@ -5,7 +5,7 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { useState } from "react";
 
 import { api } from "../../convex/_generated/api";
-import type { PostView } from "../../convex/posts";
+import type { PostView } from "../../convex/postContract";
 import { casesHandled } from "../../convex/result";
 
 type LikeButtonProps = {
