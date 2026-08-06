@@ -1,0 +1,10 @@
+.agents/
+.claude/
+.next/
+DESIGN-SYSTEM.md
+convex/_generated/
+coverage/
+docs/agents/triage-labels.md
+node_modules/
+public/
+tailwind.preset.cjs

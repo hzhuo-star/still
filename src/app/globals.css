@@ -1,0 +1,17 @@
+@import "../../tailwind-theme.css";
+
+body {
+  margin: 0;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --color-muted: #4f5650;
+    --color-line: #aeb5af;
+  }
+}
