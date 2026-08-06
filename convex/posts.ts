@@ -9,10 +9,8 @@ import {
   toMemberProfile,
 } from "./members";
 import * as PostContent from "./postContent";
+import { FEED_LIMIT, type ListEnding } from "./postList";
 import { shouldNeverHappen } from "./result";
-
-/** The maximum number of Posts a Feed or Profile renders. */
-export const FEED_LIMIT = 50;
 
 /** The complete immutable display model for one Post. */
 const postViewValidator = v.object({
@@ -40,9 +38,6 @@ const listEndingValidator = v.union(
   v.literal("complete"),
   v.literal("truncated"),
 );
-
-/** Whether a Post list contains every available Post or only the newest 50. */
-export type ListEnding = Infer<typeof listEndingValidator>;
 
 async function toPostView(
   ctx: QueryCtx,

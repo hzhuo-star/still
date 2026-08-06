@@ -10,6 +10,7 @@
 
 import type * as members from "../members.js";
 import type * as postContent from "../postContent.js";
+import type * as postList from "../postList.js";
 import type * as posts from "../posts.js";
 import type * as result from "../result.js";
 import type * as status from "../status.js";
@@ -23,6 +24,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   members: typeof members;
   postContent: typeof postContent;
+  postList: typeof postList;
   posts: typeof posts;
   result: typeof result;
   status: typeof status;
