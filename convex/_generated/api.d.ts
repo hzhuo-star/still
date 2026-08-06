@@ -13,7 +13,6 @@ import type * as contract_post from "../contract/post.js";
 import type * as lib_postContent from "../lib/postContent.js";
 import type * as lib_result from "../lib/result.js";
 import type * as members from "../members.js";
-import type * as migrations from "../migrations.js";
 import type * as model_members from "../model/members.js";
 import type * as model_posts from "../model/posts.js";
 import type * as posts from "../posts.js";
@@ -31,7 +30,6 @@ declare const fullApi: ApiFromModules<{
   "lib/postContent": typeof lib_postContent;
   "lib/result": typeof lib_result;
   members: typeof members;
-  migrations: typeof migrations;
   "model/members": typeof model_members;
   "model/posts": typeof model_posts;
   posts: typeof posts;
@@ -64,6 +62,4 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {
-  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
-};
+export declare const components: {};

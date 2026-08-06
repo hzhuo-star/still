@@ -1,4 +1,3 @@
-import migrations from "@convex-dev/migrations/convex.config.js";
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
 
@@ -8,7 +7,5 @@ const app = defineApp({
     CLERK_JWT_ISSUER_DOMAIN: v.string(),
   },
 });
-
-app.use(migrations);
 
 export default app;

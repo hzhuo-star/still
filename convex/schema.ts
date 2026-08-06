@@ -1,15 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const legacyStandalonePostValidator = v.object({
-  /** The Member who published the legacy Standalone Post. */
-  authorId: v.id("members"),
-  /** Parsed plain-text Post content (1–280 trimmed characters). */
-  content: v.string(),
-  /** Denormalized Like count maintained in the same mutations as `likes`. */
-  likeCount: v.number(),
-});
-
 const activeStandalonePostValidator = v.object({
   state: v.literal("active"),
   kind: v.literal("standalone"),
@@ -75,7 +66,6 @@ const quotePostTombstoneValidator = v.object({
 });
 
 const postRecordValidator = v.union(
-  legacyStandalonePostValidator,
   activeStandalonePostValidator,
   activeReplyPostValidator,
   activeQuotePostValidator,

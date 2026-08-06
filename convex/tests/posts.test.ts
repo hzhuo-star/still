@@ -1,10 +1,9 @@
 /// <reference types="vite/client" />
-import migrationsTest from "@convex-dev/migrations/test";
 import { convexTest, type TestConvex } from "convex-test";
 import type { WithoutSystemFields } from "convex/server";
 import { describe, expect, test } from "vitest";
 
-import { api, internal } from "../_generated/api";
+import { api } from "../_generated/api";
 import type { DataModel, Id } from "../_generated/dataModel";
 import type { PostView, StandalonePostView } from "../contract/post";
 import schema from "../schema";
@@ -12,9 +11,7 @@ import schema from "../schema";
 const modules = import.meta.glob("../**/*.ts");
 
 function newBackend(): TestConvex<typeof schema> {
-  const backend = convexTest(schema, modules);
-  migrationsTest.register(backend);
-  return backend;
+  return convexTest(schema, modules);
 }
 
 function standalonePosts(
@@ -812,38 +809,6 @@ describe("Posts.listFeed", () => {
     ).toBe(true);
   });
 
-  test("interprets legacy rows as active Standalone Posts", async () => {
-    const backend = newBackend();
-    const memberId = await ensureMember(backend, aliceIdentity);
-    const legacyPostId = await backend.run(async (ctx) =>
-      ctx.db.insert("posts", {
-        authorId: memberId,
-        content: "Written before relational Posts.",
-        likeCount: 0,
-      }),
-    );
-
-    const feed = await backend.query(api.posts.listFeed, {});
-
-    expect(feed.posts).toEqual([
-      expect.objectContaining({
-        postId: legacyPostId,
-        kind: "standalone",
-        content: "Written before relational Posts.",
-        activeReplyCount: 0,
-        activeRepostCount: 0,
-      }),
-    ]);
-
-    const profile = await backend.query(api.posts.listByMember, {
-      memberId,
-    });
-    expect(profile).toMatchObject({
-      _tag: "ok",
-      posts: [expect.objectContaining({ postId: legacyPostId })],
-    });
-  });
-
   test("selects eligible Standalone Posts before applying the Feed limit", async () => {
     const backend = newBackend();
     const memberId = await ensureMember(backend, aliceIdentity);
@@ -898,6 +863,23 @@ describe("Posts.listFeed", () => {
     ).rejects.toThrow();
   });
 
+  test("rejects Posts whose final persistence shape omits a kind", async () => {
+    const backend = newBackend();
+    const memberId = await ensureMember(backend, aliceIdentity);
+
+    // SAFETY: This test intentionally bypasses the generated insert type to
+    // prove the contracted runtime schema rejects the former legacy shape.
+    const missingKindPost = {
+      authorId: memberId,
+      content: "The compatibility window is closed.",
+      likeCount: 0,
+    } as unknown as WithoutSystemFields<DataModel["posts"]["document"]>;
+
+    await expect(
+      backend.run(async (ctx) => ctx.db.insert("posts", missingKindPost)),
+    ).rejects.toThrow();
+  });
+
   test("marks exactly 50 Posts as a complete Feed", async () => {
     const backend = newBackend();
     for (let index = 1; index <= 50; index += 1) {
@@ -922,41 +904,6 @@ describe("Posts.listFeed", () => {
     expect(feed.ending).toBe("truncated");
     expect(standalonePosts(feed.posts)[0]?.content).toBe("Post 51");
     expect(standalonePosts(feed.posts)[49]?.content).toBe("Post 2");
-  });
-});
-
-describe("Posts relational migration", () => {
-  test("backfills legacy Posts idempotently without changing public results", async () => {
-    const backend = newBackend();
-    const memberId = await ensureMember(backend, aliceIdentity);
-    const legacyPostId = await backend.run(async (ctx) =>
-      ctx.db.insert("posts", {
-        authorId: memberId,
-        content: "Keep this thought unchanged.",
-        likeCount: 0,
-      }),
-    );
-    const before = await backend.query(api.posts.listFeed, {});
-
-    await backend.mutation(internal.migrations.backfillLegacyPosts, {});
-    await backend.mutation(internal.migrations.backfillLegacyPosts, {
-      reset: true,
-    });
-
-    const storedPost = await backend.run(async (ctx) =>
-      ctx.db.get("posts", legacyPostId),
-    );
-    expect(storedPost).toMatchObject({
-      authorId: memberId,
-      content: "Keep this thought unchanged.",
-      likeCount: 0,
-      state: "active",
-      kind: "standalone",
-      activeReplyCount: 0,
-      activeRepostCount: 0,
-    });
-    const after = await backend.query(api.posts.listFeed, {});
-    expect(after).toEqual(before);
   });
 });
 
@@ -1171,10 +1118,7 @@ describe("Posts.toggleRepost", () => {
     expect(wrappers).toHaveLength(2);
     expect(
       wrappers.every(
-        (post) =>
-          "kind" in post &&
-          post.kind === "repost" &&
-          post.sourcePostId === sourcePostId,
+        (post) => post.kind === "repost" && post.sourcePostId === sourcePostId,
       ),
     ).toBe(true);
   });
@@ -1195,38 +1139,6 @@ describe("Posts.toggleRepost", () => {
       .mutation(api.posts.toggleRepost, { postId });
 
     expect(outcome).toEqual({ _tag: "post-unavailable" });
-  });
-
-  test("Reposting a legacy source preserves it as an explicit Standalone Post", async () => {
-    const backend = newBackend();
-    const aliceMemberId = await ensureMember(backend, aliceIdentity);
-    const legacyPostId = await backend.run(async (ctx) =>
-      ctx.db.insert("posts", {
-        authorId: aliceMemberId,
-        content: "Published before relational Posts.",
-        likeCount: 0,
-      }),
-    );
-
-    const outcome = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleRepost, { postId: legacyPostId });
-    expect(outcome).toEqual({
-      _tag: "ok",
-      state: "reposted",
-      activeRepostCount: 1,
-    });
-
-    const storedSource = await backend.run(async (ctx) =>
-      ctx.db.get("posts", legacyPostId),
-    );
-    expect(storedSource).toMatchObject({
-      state: "active",
-      kind: "standalone",
-      content: "Published before relational Posts.",
-      activeReplyCount: 0,
-      activeRepostCount: 1,
-    });
   });
 
   test("serializes concurrent toggles without duplicate wrappers or counts", async () => {
