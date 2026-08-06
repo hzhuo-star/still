@@ -2,12 +2,15 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 type StillShellProps = {
+  /** The route the shell is rendering, marked current in navigation. */
+  readonly activeRoute: "feed" | "profile" | "none";
   readonly auth: ReactNode;
   readonly children: ReactNode;
 };
 
 /** Renders Still's responsive navigation, reading column, and context rail. */
-export function StillShell({ auth, children }: StillShellProps) {
+export function StillShell({ activeRoute, auth, children }: StillShellProps) {
+  const feedIsCurrent = activeRoute === "feed";
   return (
     <div className="mx-auto grid min-h-screen w-[calc(100%-2rem)] max-w-shell grid-cols-1 shell:grid-cols-[190px_minmax(0,610px)] shell:gap-10 context:grid-cols-[minmax(150px,190px)_minmax(0,610px)_minmax(180px,220px)] context:gap-5 min-[1160px]:gap-layout">
       <a
@@ -25,8 +28,12 @@ export function StillShell({ auth, children }: StillShellProps) {
         </Link>
         <nav aria-label="Primary navigation" className="hidden shell:block">
           <Link
-            aria-current="page"
-            className="flex min-h-touch items-center gap-3 text-sm font-medium text-ink no-underline before:h-5 before:w-0.5 before:rounded-pill before:bg-sage"
+            aria-current={feedIsCurrent ? "page" : undefined}
+            className={`flex min-h-touch items-center gap-3 text-sm font-medium no-underline transition-colors ease-still before:h-5 before:w-0.5 before:rounded-pill ${
+              feedIsCurrent
+                ? "text-ink before:bg-sage"
+                : "text-muted before:bg-transparent hover:text-ink"
+            }`}
             href="/"
           >
             Feed

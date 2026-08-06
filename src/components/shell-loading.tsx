@@ -4,6 +4,7 @@ import { StillShell } from "@/components/still-shell";
 export function ShellLoading() {
   return (
     <StillShell
+      activeRoute="none"
       auth={
         <span className="block h-10 w-20 animate-pulse rounded-pill bg-line motion-reduce:animate-none" />
       }

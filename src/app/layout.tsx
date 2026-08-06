@@ -5,6 +5,7 @@ import { Suspense, type ReactNode } from "react";
 import { ConvexClientProvider } from "@/components/convex-client-provider";
 import { ShellLoading } from "@/components/shell-loading";
 import { parsePublicConfig } from "@/config/public-config";
+import { MemberSync } from "@/members/member-sync";
 
 import "./globals.css";
 
@@ -66,6 +67,7 @@ export default function RootLayout({
         <ClerkProvider publishableKey={config.value.clerkPublishableKey}>
           <Suspense fallback={<ShellLoading />}>
             <ConvexClientProvider url={config.value.convexUrl}>
+              <MemberSync />
               {children}
             </ConvexClientProvider>
           </Suspense>
