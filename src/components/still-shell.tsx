@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 type StillShellProps = {
   /** The route the shell is rendering, marked current in navigation. */
-  readonly activeRoute: "feed" | "following" | "profile" | "none";
+  readonly activeRoute: "feed" | "following" | "search" | "profile" | "none";
   readonly auth: ReactNode;
   readonly children: ReactNode;
 };
@@ -19,6 +19,7 @@ const navLinkClassName = (isCurrent: boolean): string =>
 export function StillShell({ activeRoute, auth, children }: StillShellProps) {
   const feedIsCurrent = activeRoute === "feed";
   const followingIsCurrent = activeRoute === "following";
+  const searchIsCurrent = activeRoute === "search";
   return (
     <div className="mx-auto grid min-h-screen w-[calc(100%-2rem)] max-w-shell grid-cols-1 shell:grid-cols-[190px_minmax(0,610px)] shell:gap-10 context:grid-cols-[minmax(150px,190px)_minmax(0,610px)_minmax(180px,220px)] context:gap-5 min-[1160px]:gap-layout">
       <a
@@ -48,6 +49,13 @@ export function StillShell({ activeRoute, auth, children }: StillShellProps) {
             href="/following"
           >
             Following
+          </Link>
+          <Link
+            aria-current={searchIsCurrent ? "page" : undefined}
+            className={navLinkClassName(searchIsCurrent)}
+            href="/search"
+          >
+            Search
           </Link>
         </nav>
         {auth}

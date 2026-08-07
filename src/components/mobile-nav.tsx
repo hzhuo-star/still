@@ -1,8 +1,8 @@
 import Link from "next/link";
 
-type FeedTabsProps = {
-  /** The Feed route the tabs are rendered on, marked current. */
-  readonly active: "feed" | "following";
+type MobileNavProps = {
+  /** The route the tabs are rendered on, marked current. */
+  readonly active: "feed" | "following" | "search";
 };
 
 const tabClassName = (isCurrent: boolean): string =>
@@ -13,13 +13,13 @@ const tabClassName = (isCurrent: boolean): string =>
   }`;
 
 /**
- * Compact navigation between the public Feed and the Following Feed for
- * viewports where the primary navigation rail is hidden.
+ * Compact tab navigation between Still's destinations for viewports where
+ * the primary navigation rail is hidden; the rail replaces it on wide shells.
  */
-export function FeedTabs({ active }: FeedTabsProps) {
+export function MobileNav({ active }: MobileNavProps) {
   return (
     <nav
-      aria-label="Feeds"
+      aria-label="Primary navigation"
       className="mb-6 flex border-b border-line shell:hidden"
     >
       <Link
@@ -35,6 +35,13 @@ export function FeedTabs({ active }: FeedTabsProps) {
         href="/following"
       >
         Following
+      </Link>
+      <Link
+        aria-current={active === "search" ? "page" : undefined}
+        className={tabClassName(active === "search")}
+        href="/search"
+      >
+        Search
       </Link>
     </nav>
   );

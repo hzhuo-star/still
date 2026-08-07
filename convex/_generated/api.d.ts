@@ -11,6 +11,7 @@
 import type * as contract_list from "../contract/list.js";
 import type * as contract_member from "../contract/member.js";
 import type * as contract_post from "../contract/post.js";
+import type * as contract_search from "../contract/search.js";
 import type * as lib_memberProfile from "../lib/memberProfile.js";
 import type * as lib_postContent from "../lib/postContent.js";
 import type * as lib_result from "../lib/result.js";
@@ -19,7 +20,9 @@ import type * as model_follows from "../model/follows.js";
 import type * as model_memberProjection from "../model/memberProjection.js";
 import type * as model_members from "../model/members.js";
 import type * as model_posts from "../model/posts.js";
+import type * as model_search from "../model/search.js";
 import type * as posts from "../posts.js";
+import type * as search from "../search.js";
 import type * as socialMigrations from "../socialMigrations.js";
 import type * as status from "../status.js";
 
@@ -33,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   "contract/list": typeof contract_list;
   "contract/member": typeof contract_member;
   "contract/post": typeof contract_post;
+  "contract/search": typeof contract_search;
   "lib/memberProfile": typeof lib_memberProfile;
   "lib/postContent": typeof lib_postContent;
   "lib/result": typeof lib_result;
@@ -41,7 +45,9 @@ declare const fullApi: ApiFromModules<{
   "model/memberProjection": typeof model_memberProjection;
   "model/members": typeof model_members;
   "model/posts": typeof model_posts;
+  "model/search": typeof model_search;
   posts: typeof posts;
+  search: typeof search;
   socialMigrations: typeof socialMigrations;
   status: typeof status;
 }>;

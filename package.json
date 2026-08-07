@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "format": "prettier --check --ignore-unknown ."
+    "format": "prettier --check --ignore-unknown .",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.6.5",
@@ -28,6 +29,7 @@
     "convex-test": "^0.0.55",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
+    "patch-package": "^8.0.1",
     "prettier": "^3.9.6",
     "tailwindcss": "^4",
     "typescript": "^5",

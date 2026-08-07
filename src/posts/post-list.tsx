@@ -12,13 +12,15 @@ type PostListProps = {
   readonly posts: ReadonlyArray<PostView>;
   /** Whether the list is complete or bounded at the newest 50. */
   readonly ending: ListEnding;
+  /** Copy disclosing a truncated list's bound; the Feed's default otherwise. */
+  readonly truncatedNotice?: string;
 };
 
 /**
  * Renders a bounded list of Posts followed by its honest ending notice,
  * shared by the Feed and Member Profiles.
  */
-export function PostList({ posts, ending }: PostListProps) {
+export function PostList({ posts, ending, truncatedNotice }: PostListProps) {
   return (
     <QuoteComposerProvider>
       <EditComposerProvider>
@@ -29,7 +31,10 @@ export function PostList({ posts, ending }: PostListProps) {
             </li>
           ))}
         </ul>
-        <ListEndingNotice ending={ending} />
+        <ListEndingNotice
+          ending={ending}
+          {...(truncatedNotice === undefined ? {} : { truncatedNotice })}
+        />
       </EditComposerProvider>
     </QuoteComposerProvider>
   );

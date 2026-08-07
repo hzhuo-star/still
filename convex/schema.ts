@@ -104,7 +104,6 @@ const schema = defineSchema({
     .index("by_normalizedHandle", ["normalizedHandle"])
     .searchIndex("search_searchText", {
       searchField: "searchText",
-      staged: true,
     }),
 
   posts: defineTable(postRecordValidator)
@@ -116,7 +115,6 @@ const schema = defineSchema({
     .searchIndex("search_content", {
       searchField: "content",
       filterFields: ["state", "kind"],
-      staged: true,
     }),
 
   follows: defineTable({

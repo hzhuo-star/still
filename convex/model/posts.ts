@@ -62,7 +62,18 @@ async function toPostView(
   return await toAuthoredPostView(ctx, post, viewerId);
 }
 
-async function toAuthoredPostView(
+/**
+ * Project one active text-bearing Post into its complete display model.
+ *
+ * Shared with the Search model, whose results are always active authored
+ * Posts; Repost wrappers and Tombstones never reach this projection.
+ *
+ * @param ctx - The Convex query context.
+ * @param post - The stored active Standalone, Reply, or Quote Post.
+ * @param viewerId - The viewing Member, or `null` for a signed-out reader.
+ * @returns The Post's complete immutable display model with viewer state.
+ */
+export async function toAuthoredPostView(
   ctx: QueryCtx,
   post: Doc<"posts">,
   viewerId: Doc<"members">["_id"] | null,

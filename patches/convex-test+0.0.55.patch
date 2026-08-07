@@ -1,0 +1,16 @@
+diff --git a/node_modules/convex-test/dist/index.js b/node_modules/convex-test/dist/index.js
+index 60d19e0..f290d60 100644
+--- a/node_modules/convex-test/dist/index.js
++++ b/node_modules/convex-test/dist/index.js
+@@ -722,6 +722,11 @@ function evaluateSearchFilter(document, filter) {
+         case "Eq":
+             return compareValues(result, evaluateQueryValue(filter.value)) === 0;
+         case "Search": {
++            // A document without the indexed search field is not in the search
++            // index at all, matching real Convex semantics.
++            if (typeof result !== "string") {
++                return false;
++            }
+             const queryTerms = filter.value
+                 .toLowerCase()
+                 .split(/\s+/)
