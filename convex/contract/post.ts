@@ -1,5 +1,6 @@
 import { v, type Infer } from "convex/values";
 
+import { listEndingValidator } from "./list";
 import {
   memberIdentityValidator,
   registrationRequiredOutcomeValidator,
@@ -10,15 +11,6 @@ export const FEED_LIMIT = 50;
 
 /** The maximum number of Replies a Conversation renders. */
 export const CONVERSATION_REPLY_LIMIT = 50;
-
-/** Whether a Post list contains every available Post or only the newest 50. */
-export const listEndingValidator = v.union(
-  v.literal("complete"),
-  v.literal("truncated"),
-);
-
-/** Whether a Post list contains every available Post or only the newest 50. */
-export type ListEnding = Infer<typeof listEndingValidator>;
 
 const postViewFields = {
   /** The Post's canonical identifier. */

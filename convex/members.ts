@@ -7,9 +7,12 @@ import {
   getMemberProfileOutcomeValidator,
   registerCurrentMemberArgsValidator,
   registerCurrentMemberOutcomeValidator,
+  listRelationshipOutcomeValidator,
+  toggleFollowOutcomeValidator,
   updateCurrentProfileArgsValidator,
   updateCurrentProfileOutcomeValidator,
 } from "./contract/member";
+import * as Follows from "./model/follows";
 import * as Members from "./model/members";
 
 /**
@@ -51,4 +54,34 @@ export const getProfile = query({
   },
   returns: getMemberProfileOutcomeValidator,
   handler: async (ctx, args) => await Members.getProfile(ctx, args.memberId),
+});
+
+/** Follow or unfollow another registered Member as the acting Member. */
+export const toggleFollow = mutation({
+  args: {
+    /** The Member whose Follow relationship the acting Member is toggling. */
+    memberId: v.id("members"),
+  },
+  returns: toggleFollowOutcomeValidator,
+  handler: async (ctx, args) => await Members.toggleFollow(ctx, args.memberId),
+});
+
+/** Read the Members who follow one Member, newest relationship first. */
+export const listFollowers = query({
+  args: {
+    /** The relationship route's untrusted Member id segment. */
+    memberId: v.string(),
+  },
+  returns: listRelationshipOutcomeValidator,
+  handler: async (ctx, args) => await Follows.listFollowers(ctx, args.memberId),
+});
+
+/** Read the Members one Member follows, newest relationship first. */
+export const listFollowing = query({
+  args: {
+    /** The relationship route's untrusted Member id segment. */
+    memberId: v.string(),
+  },
+  returns: listRelationshipOutcomeValidator,
+  handler: async (ctx, args) => await Follows.listFollowing(ctx, args.memberId),
 });

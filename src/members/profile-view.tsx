@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 
 import { api } from "../../convex/_generated/api";
+import { FollowButton } from "@/members/follow-button";
 import { MemberAvatar } from "@/members/member-avatar";
 import { PostList } from "@/posts/post-list";
 import { PostListSkeleton } from "@/posts/post-list-skeleton";
@@ -74,6 +75,33 @@ function MemberPosts({
   return <PostList ending={outcome.ending} posts={outcome.posts} />;
 }
 
+function RelationshipCounts({
+  followerCount,
+  followingCount,
+  memberId,
+}: {
+  readonly followerCount: number;
+  readonly followingCount: number;
+  readonly memberId: string;
+}) {
+  const countClassName =
+    "inline-flex min-h-touch items-center text-meta text-muted no-underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface";
+
+  return (
+    <nav aria-label="Relationships" className="mt-4 flex items-center gap-6">
+      <Link className={countClassName} href={`/members/${memberId}/followers`}>
+        <span className="font-medium text-ink">{followerCount}</span>
+        &nbsp;
+        {followerCount === 1 ? "Follower" : "Followers"}
+      </Link>
+      <Link className={countClassName} href={`/members/${memberId}/following`}>
+        <span className="font-medium text-ink">{followingCount}</span>
+        &nbsp;Following
+      </Link>
+    </nav>
+  );
+}
+
 type ProfileViewProps = {
   /** The untrusted Member id segment from the Profile route. */
   readonly memberId: string;
@@ -96,13 +124,13 @@ export function ProfileView({ memberId }: ProfileViewProps) {
 
   return (
     <>
-      <header className="flex items-center gap-4">
+      <header className="flex flex-wrap items-center gap-4">
         <MemberAvatar
           avatarUrl={profile.profile.avatarUrl}
           displayName={profile.profile.displayName}
           sizePx={56}
         />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="truncate font-reading text-title text-ink">
             {profile.profile.displayName}
           </h1>
@@ -112,7 +140,17 @@ export function ProfileView({ memberId }: ProfileViewProps) {
               : "Member Profile"}
           </p>
         </div>
+        <FollowButton
+          displayName={profile.profile.displayName}
+          memberId={profile.profile.memberId}
+          viewerFollow={profile.viewerFollow}
+        />
       </header>
+      <RelationshipCounts
+        followerCount={profile.profile.followerCount}
+        followingCount={profile.profile.followingCount}
+        memberId={memberId}
+      />
       {profile.profile.registrationState === "registered" &&
       profile.profile.biography !== undefined ? (
         <p className="mt-4 text-body text-ink">{profile.profile.biography}</p>

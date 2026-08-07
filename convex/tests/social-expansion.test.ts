@@ -40,6 +40,7 @@ describe("social schema expansion", () => {
 
     expect(profile).toEqual({
       _tag: "ok",
+      viewerFollow: "unavailable",
       profile: {
         registrationState: "pending",
         memberId,
@@ -111,6 +112,7 @@ describe("social schema expansion", () => {
 
     expect(profile).toEqual({
       _tag: "ok",
+      viewerFollow: "unavailable",
       profile: {
         registrationState: "registered",
         memberId,

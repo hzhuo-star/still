@@ -395,7 +395,7 @@ describe("Members.updateCurrent", () => {
     });
     await expect(
       backend.query(api.members.getProfile, { memberId }),
-    ).resolves.toEqual(updated);
+    ).resolves.toEqual({ ...updated, viewerFollow: "unavailable" });
   });
 
   test("clears a biography the Member removes", async () => {
@@ -419,6 +419,7 @@ describe("Members.updateCurrent", () => {
       backend.query(api.members.getProfile, { memberId }),
     ).resolves.toEqual({
       _tag: "ok",
+      viewerFollow: "unavailable",
       profile: {
         registrationState: "registered",
         memberId,
@@ -586,6 +587,7 @@ describe("Members.updateCurrent", () => {
       backend.query(api.members.getProfile, { memberId }),
     ).resolves.toEqual({
       _tag: "ok",
+      viewerFollow: "unavailable",
       profile: {
         registrationState: "registered",
         memberId,
@@ -634,6 +636,7 @@ describe("Members.getProfile", () => {
       backend.query(api.members.getProfile, { memberId }),
     ).resolves.toEqual({
       _tag: "ok",
+      viewerFollow: "unavailable",
       profile: {
         registrationState: "pending",
         memberId,

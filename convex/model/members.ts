@@ -7,23 +7,24 @@ import type {
   GetCurrentMemberOutcome,
   GetMemberProfileOutcome,
   MemberIdentity,
-  MemberProfile as PublicMemberProfile,
   MemberRegistrationDefaults,
   RegisterCurrentMemberOutcome,
+  ToggleFollowOutcome,
   RegisteredMemberProfile,
   UpdateCurrentProfileOutcome,
 } from "../contract/member";
 import * as MemberProfile from "../lib/memberProfile";
 import { shouldNeverHappen } from "../lib/result";
-
-/**
- * A Member record whose one-time Registration is complete, so its Still-owned
- * Handle is present rather than optional.
- */
-type RegisteredMemberRecord = Doc<"members"> & {
-  readonly handle: string;
-  readonly normalizedHandle: string;
-};
+import * as Follows from "./follows";
+import { viewerFollow } from "./follows";
+import {
+  asRegistered,
+  followCounts,
+  toMemberIdentity,
+  toMemberProfile,
+  toRegisteredProfile,
+  type RegisteredMemberRecord,
+} from "./memberProjection";
 
 function findByExternalId(
   ctx: QueryCtx,
@@ -47,28 +48,6 @@ function findByNormalizedHandle(
     .unique();
 }
 
-/**
- * Narrow a stored Member to its registered shape.
- *
- * A record that claims Registration without a Handle cannot be projected or
- * act, so it is treated as a defect rather than silently downgraded.
- */
-function asRegistered(member: Doc<"members">): RegisteredMemberRecord | null {
-  if (member.registrationState !== "registered") {
-    return null;
-  }
-
-  if (member.handle === undefined || member.normalizedHandle === undefined) {
-    return shouldNeverHappen("Registered Member is missing its Handle");
-  }
-
-  return {
-    ...member,
-    handle: member.handle,
-    normalizedHandle: member.normalizedHandle,
-  };
-}
-
 /** The identity fields Still projects from a verified Clerk identity. */
 type IdentityProjection = {
   readonly displayName: string;
@@ -82,54 +61,6 @@ function projectIdentity(identity: UserIdentity): IdentityProjection {
   return identity.pictureUrl === undefined
     ? { displayName }
     : { displayName, avatarUrl: identity.pictureUrl };
-}
-
-function toMemberIdentity(member: Doc<"members">): MemberIdentity {
-  return {
-    memberId: member._id,
-    displayName: member.displayName,
-    ...(member.avatarUrl === undefined ? {} : { avatarUrl: member.avatarUrl }),
-  };
-}
-
-/**
- * Read a Member's public Follow counts.
- *
- * Pre-expansion records carry no counters, so absence reads as zero in exactly
- * one place rather than at every projection and write.
- */
-function followCounts(member: Doc<"members"> | null): {
-  readonly followerCount: number;
-  readonly followingCount: number;
-} {
-  return {
-    followerCount: member?.followerCount ?? 0,
-    followingCount: member?.followingCount ?? 0,
-  };
-}
-
-function toRegisteredProfile(
-  member: RegisteredMemberRecord,
-): RegisteredMemberProfile {
-  return {
-    registrationState: "registered",
-    ...toMemberIdentity(member),
-    handle: member.handle,
-    ...(member.biography === undefined ? {} : { biography: member.biography }),
-    ...followCounts(member),
-  };
-}
-
-function toMemberProfile(member: Doc<"members">): PublicMemberProfile {
-  const registered = asRegistered(member);
-
-  return registered === null
-    ? {
-        registrationState: "pending",
-        ...toMemberIdentity(member),
-        ...followCounts(member),
-      }
-    : toRegisteredProfile(registered);
 }
 
 /**
@@ -499,11 +430,13 @@ export async function getIdentity(
 }
 
 /**
- * Read a Member's public Profile in whichever registration state it holds.
+ * Read a Member's public Profile in whichever registration state it holds,
+ * beside the reading viewer's own relationship to them.
  *
  * @param ctx - The Convex query context.
  * @param memberId - The Profile route's untrusted Member id segment.
- * @returns The public Profile or a missing-Member outcome.
+ * @returns The public Profile and viewer relationship, or a missing-Member
+ *   outcome.
  */
 export async function getProfile(
   ctx: QueryCtx,
@@ -517,7 +450,35 @@ export async function getProfile(
 
   const member = await ctx.db.get("members", normalizedMemberId);
 
-  return member === null
-    ? { _tag: "member-not-found" }
-    : { _tag: "ok", profile: toMemberProfile(member) };
+  if (member === null) {
+    return { _tag: "member-not-found" };
+  }
+
+  return {
+    _tag: "ok",
+    profile: toMemberProfile(member),
+    viewerFollow: await viewerFollow(
+      ctx,
+      await currentRegisteredMember(ctx),
+      member,
+    ),
+  };
+}
+
+/**
+ * Follow or unfollow another registered Member as the acting Member.
+ *
+ * @param ctx - The Convex mutation context.
+ * @param followedMemberId - The Member being followed or unfollowed.
+ * @returns The new relationship and both counts, or a precise failure.
+ */
+export async function toggleFollow(
+  ctx: MutationCtx,
+  followedMemberId: Id<"members">,
+): Promise<ToggleFollowOutcome> {
+  return await Follows.toggle(
+    ctx,
+    await currentRegisteredMember(ctx),
+    followedMemberId,
+  );
 }

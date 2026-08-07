@@ -1,5 +1,13 @@
 import { v, type Infer } from "convex/values";
 
+import { listEndingValidator } from "./list";
+
+/** The most Members one Member may follow. */
+export const MAX_FOLLOWING = 50;
+
+/** The most relationships one public relationship list renders. */
+export const RELATIONSHIP_LIMIT = 50;
+
 /** The projected identity Still shows beside a Member's Posts. */
 export const memberIdentityValidator = v.object({
   /** The Member's canonical identifier. */
@@ -225,11 +233,87 @@ export type UpdateCurrentProfileOutcome = Readonly<
   Infer<typeof updateCurrentProfileOutcomeValidator>
 >;
 
+/**
+ * The viewer's Follow relationship to the Profile they are reading.
+ *
+ * `unavailable` covers every viewer who cannot hold a relationship yet — signed
+ * out, awaiting onboarding, or reading a Member who has not registered — so the
+ * Follow control asks for the missing step instead of guessing.
+ */
+export const viewerFollowValidator = v.union(
+  v.literal("self"),
+  v.literal("following"),
+  v.literal("not-following"),
+  v.literal("unavailable"),
+);
+
+/** The viewer's Follow relationship to the Profile they are reading. */
+export type ViewerFollow = Infer<typeof viewerFollowValidator>;
+
 /** The outcome of reading a Member's public Profile. */
 export const getMemberProfileOutcomeValidator = v.union(
-  v.object({ _tag: v.literal("ok"), profile: memberProfileValidator }),
+  v.object({
+    _tag: v.literal("ok"),
+    profile: memberProfileValidator,
+    /** The reading viewer's own relationship to this Member. */
+    viewerFollow: viewerFollowValidator,
+  }),
   v.object({ _tag: v.literal("member-not-found") }),
 );
+
+/** One registered Member as a public relationship list renders them. */
+export const memberSummaryValidator = memberIdentityValidator.extend({
+  /** The Member's current public Handle. */
+  handle: v.string(),
+});
+
+/** One registered Member as a public relationship list renders them. */
+export type MemberSummary = Readonly<Infer<typeof memberSummaryValidator>>;
+
+/** The outcome of toggling the acting Member's Follow of another Member. */
+export const toggleFollowOutcomeValidator = v.union(
+  v.object({
+    _tag: v.literal("ok"),
+    /** The acting Member's relationship after the toggle. */
+    state: v.union(v.literal("following"), v.literal("not-following")),
+    /** The followed Member's follower count after the toggle. */
+    followerCount: v.number(),
+    /** The acting Member's following count after the toggle. */
+    viewerFollowingCount: v.number(),
+  }),
+  v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
+  v.object({ _tag: v.literal("member-not-found") }),
+  v.object({ _tag: v.literal("member-not-registered") }),
+  v.object({ _tag: v.literal("self-follow") }),
+  v.object({
+    _tag: v.literal("follow-limit-reached"),
+    /** The most Members one Member may follow. */
+    limit: v.number(),
+  }),
+);
+
+/** The outcome of toggling the acting Member's Follow of another Member. */
+export type ToggleFollowOutcome = Readonly<
+  Infer<typeof toggleFollowOutcomeValidator>
+>;
+
+/** The outcome of reading one Member's bounded relationship list. */
+export const listRelationshipOutcomeValidator = v.union(
+  v.object({
+    _tag: v.literal("ok"),
+    /** The newest relationships, bounded to {@link RELATIONSHIP_LIMIT}. */
+    members: v.array(memberSummaryValidator),
+    /** Whether older relationships exist beyond the bounded list. */
+    ending: listEndingValidator,
+  }),
+  v.object({ _tag: v.literal("member-not-found") }),
+);
+
+/** The outcome of reading one Member's bounded relationship list. */
+export type ListRelationshipOutcome = Readonly<
+  Infer<typeof listRelationshipOutcomeValidator>
+>;
 
 /** The outcome of reading a Member's public Profile. */
 export type GetMemberProfileOutcome = Readonly<
