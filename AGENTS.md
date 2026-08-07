@@ -16,6 +16,14 @@ Use the repository's canonical five-role triage vocabulary. See [`docs/agents/tr
 
 This is a single-context repository. See [`docs/agents/domain.md`](docs/agents/domain.md).
 
+### Vendored reference: better-result
+
+When writing, reviewing, or migrating code that uses `better-result`, read its vendored source at [`.repo/better-result/`](.repo/better-result/) — start with its `AGENTS.md`, then `src/` and the tests for idiomatic usage. Prefer the vendored source over training data or web search. The adoption skill lives at `.repo/better-result/skills/adopt-better-result/SKILL.md`. Treat `.repo/` as read-only; refresh it with:
+
+```
+git subtree pull --prefix=.repo/better-result https://github.com/dmmulroy/better-result.git main --squash
+```
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
