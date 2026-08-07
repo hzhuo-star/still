@@ -60,7 +60,7 @@ async function follow(
 ): Promise<void> {
   const outcome = await backend
     .withIdentity(identity)
-    .mutation(api.members.toggleFollow, { memberId });
+    .mutation(api.members.setFollow, { memberId, intent: "follow" });
 
   if (outcome._tag !== "ok" || outcome.state !== "following") {
     throw new Error(`Expected a Follow, got ${outcome._tag}`);
@@ -85,19 +85,25 @@ async function storedCounts(
   });
 }
 
-describe("Members.toggleFollow", () => {
+describe("Members.setFollow", () => {
   test("refuses signed-out and unregistered actors without a relation", async () => {
     const backend = newBackend();
     const benId = await register(backend, benIdentity);
 
     await expect(
-      backend.mutation(api.members.toggleFollow, { memberId: benId }),
+      backend.mutation(api.members.setFollow, {
+        memberId: benId,
+        intent: "follow",
+      }),
     ).resolves.toEqual({ _tag: "unauthenticated" });
 
     const awaiting = backend.withIdentity(claraIdentity);
     await awaiting.mutation(api.members.ensureCurrent, {});
     await expect(
-      awaiting.mutation(api.members.toggleFollow, { memberId: benId }),
+      awaiting.mutation(api.members.setFollow, {
+        memberId: benId,
+        intent: "follow",
+      }),
     ).resolves.toEqual({ _tag: "registration-required" });
 
     expect(await storedCounts(backend, benId)).toEqual({
@@ -113,7 +119,7 @@ describe("Members.toggleFollow", () => {
 
     const followed = await backend
       .withIdentity(aliceIdentity)
-      .mutation(api.members.toggleFollow, { memberId: benId });
+      .mutation(api.members.setFollow, { memberId: benId, intent: "follow" });
 
     expect(followed).toEqual({
       _tag: "ok",
@@ -140,7 +146,7 @@ describe("Members.toggleFollow", () => {
 
     const unfollowed = await backend
       .withIdentity(aliceIdentity)
-      .mutation(api.members.toggleFollow, { memberId: benId });
+      .mutation(api.members.setFollow, { memberId: benId, intent: "unfollow" });
 
     expect(unfollowed).toEqual({
       _tag: "ok",
@@ -159,9 +165,10 @@ describe("Members.toggleFollow", () => {
     const aliceId = await register(backend, aliceIdentity);
 
     await expect(
-      backend
-        .withIdentity(aliceIdentity)
-        .mutation(api.members.toggleFollow, { memberId: aliceId }),
+      backend.withIdentity(aliceIdentity).mutation(api.members.setFollow, {
+        memberId: aliceId,
+        intent: "follow",
+      }),
     ).resolves.toEqual({ _tag: "self-follow" });
     expect(await storedCounts(backend, aliceId)).toEqual({
       follower: 0,
@@ -187,7 +194,10 @@ describe("Members.toggleFollow", () => {
     const asAlice = backend.withIdentity(aliceIdentity);
 
     await expect(
-      asAlice.mutation(api.members.toggleFollow, { memberId: pendingId }),
+      asAlice.mutation(api.members.setFollow, {
+        memberId: pendingId,
+        intent: "follow",
+      }),
     ).resolves.toEqual({ _tag: "member-not-registered" });
     expect(await storedCounts(backend, pendingId)).toEqual({
       follower: 0,
@@ -202,49 +212,73 @@ describe("Members.toggleFollow", () => {
     const asAlice = backend.withIdentity(aliceIdentity);
 
     const outcomes = await Promise.all([
-      asAlice.mutation(api.members.toggleFollow, { memberId: benId }),
-      asAlice.mutation(api.members.toggleFollow, { memberId: benId }),
+      asAlice.mutation(api.members.setFollow, {
+        memberId: benId,
+        intent: "follow",
+      }),
+      asAlice.mutation(api.members.setFollow, {
+        memberId: benId,
+        intent: "follow",
+      }),
     ]);
 
-    // Two toggles settle as a Follow and its reversal, never as two relations.
-    expect(outcomes.every((outcome) => outcome._tag === "ok")).toBe(true);
-    const counts = await storedCounts(backend, benId);
-    expect(counts.follower).toBeLessThanOrEqual(1);
-    await expect(
-      backend.query(api.members.getProfile, { memberId: benId }),
-    ).resolves.toMatchObject({
-      _tag: "ok",
-      profile: { followerCount: counts.follower },
-    });
-  });
-
-  test("handles unfollowing a relation that is already gone", async () => {
-    const backend = newBackend();
-    await register(backend, aliceIdentity);
-    const benId = await register(backend, benIdentity);
-    await follow(backend, aliceIdentity, benId);
-    await backend.run(async (ctx) => {
-      const relation = await ctx.db
-        .query("follows")
-        .withIndex("by_followedId", (q) => q.eq("followedId", benId))
-        .unique();
-      if (relation !== null) {
-        await ctx.db.delete("follows", relation._id);
-      }
-    });
-
-    const outcome = await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.members.toggleFollow, { memberId: benId });
-
-    expect(outcome).toMatchObject({ _tag: "ok", state: "following" });
+    // Two identical intents settle as one relation and one honest counter.
+    expect(outcomes).toEqual([
+      expect.objectContaining({ _tag: "ok", state: "following" }),
+      expect.objectContaining({ _tag: "ok", state: "following" }),
+    ]);
     expect(await storedCounts(backend, benId)).toEqual({
       follower: 1,
       following: 0,
     });
     await expect(
       backend.query(api.members.getProfile, { memberId: benId }),
-    ).resolves.toMatchObject({ _tag: "ok", profile: { followerCount: 1 } });
+    ).resolves.toMatchObject({
+      _tag: "ok",
+      profile: { followerCount: 1 },
+    });
+  });
+
+  test("confirms a stale unfollow without re-following or double-decrementing", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity);
+    const benId = await register(backend, benIdentity);
+    await follow(backend, aliceIdentity, benId);
+    const asAlice = backend.withIdentity(aliceIdentity);
+
+    // A second session already removed the relation through the same contract.
+    await expect(
+      asAlice.mutation(api.members.setFollow, {
+        memberId: benId,
+        intent: "unfollow",
+      }),
+    ).resolves.toEqual({
+      _tag: "ok",
+      state: "not-following",
+      followerCount: 0,
+      viewerFollowingCount: 0,
+    });
+
+    // The stale session's unfollow confirms the state it wanted; it neither
+    // re-follows nor pushes a counter below the true graph.
+    await expect(
+      asAlice.mutation(api.members.setFollow, {
+        memberId: benId,
+        intent: "unfollow",
+      }),
+    ).resolves.toEqual({
+      _tag: "ok",
+      state: "not-following",
+      followerCount: 0,
+      viewerFollowingCount: 0,
+    });
+    expect(await storedCounts(backend, benId)).toEqual({
+      follower: 0,
+      following: 0,
+    });
+    await expect(
+      backend.query(api.members.getProfile, { memberId: benId }),
+    ).resolves.toMatchObject({ _tag: "ok", profile: { followerCount: 0 } });
   });
 
   test("rejects the Follow beyond the outgoing limit", async () => {
@@ -266,9 +300,10 @@ describe("Members.toggleFollow", () => {
     }
 
     await expect(
-      backend
-        .withIdentity(aliceIdentity)
-        .mutation(api.members.toggleFollow, { memberId: beyondLimit }),
+      backend.withIdentity(aliceIdentity).mutation(api.members.setFollow, {
+        memberId: beyondLimit,
+        intent: "follow",
+      }),
     ).resolves.toEqual({ _tag: "follow-limit-reached", limit: MAX_FOLLOWING });
     expect(await storedCounts(backend, beyondLimit)).toEqual({
       follower: 0,

@@ -228,16 +228,19 @@ export type ListByMemberOutcome = Readonly<
   Infer<typeof listByMemberOutcomeValidator>
 >;
 
+/** A submitted draft that could not become Post content. */
+export const invalidContentOutcomeValidator = v.object({
+  _tag: v.literal("invalid-content"),
+  /** Why the submitted draft was rejected. */
+  reason: v.union(v.literal("empty"), v.literal("too-long")),
+});
+
 /** The outcome of publishing a Post. */
 export const createPostOutcomeValidator = v.union(
   v.object({ _tag: v.literal("ok"), postId: v.id("posts") }),
   v.object({ _tag: v.literal("unauthenticated") }),
   registrationRequiredOutcomeValidator,
-  v.object({
-    _tag: v.literal("invalid-content"),
-    /** Why the composer draft could not become Post content. */
-    reason: v.union(v.literal("empty"), v.literal("too-long")),
-  }),
+  invalidContentOutcomeValidator,
 );
 
 /** The outcome of publishing a Post. */
@@ -256,10 +259,7 @@ export const createReplyOutcomeValidator = v.union(
   v.object({ _tag: v.literal("ok"), postId: v.id("posts") }),
   v.object({ _tag: v.literal("unauthenticated") }),
   registrationRequiredOutcomeValidator,
-  v.object({
-    _tag: v.literal("invalid-content"),
-    reason: v.union(v.literal("empty"), v.literal("too-long")),
-  }),
+  invalidContentOutcomeValidator,
   v.object({ _tag: v.literal("target-not-found") }),
   v.object({ _tag: v.literal("target-deleted") }),
   v.object({ _tag: v.literal("target-is-repost") }),
@@ -394,6 +394,9 @@ export const notEditableReasonValidator = v.union(
   v.literal("repost"),
 );
 
+/** Why a Post cannot carry an edit at all. */
+export type NotEditableReason = Infer<typeof notEditableReasonValidator>;
+
 /** The outcome of editing an active text-bearing Post. */
 export const editPostOutcomeValidator = v.union(
   v.object({
@@ -411,10 +414,7 @@ export const editPostOutcomeValidator = v.union(
     _tag: v.literal("not-editable"),
     reason: notEditableReasonValidator,
   }),
-  v.object({
-    _tag: v.literal("invalid-content"),
-    reason: v.union(v.literal("empty"), v.literal("too-long")),
-  }),
+  invalidContentOutcomeValidator,
   v.object({
     _tag: v.literal("edit-conflict"),
     /** The Post's current revision, which a retry must submit. */

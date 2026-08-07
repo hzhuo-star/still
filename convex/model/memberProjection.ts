@@ -16,6 +16,12 @@ export type RegisteredMemberRecord = Doc<"members"> & {
   readonly normalizedHandle: string;
 };
 
+/** The acting Member's own record, or why a Member-only operation cannot run. */
+export type ActingMember =
+  | { readonly _tag: "ok"; readonly member: RegisteredMemberRecord }
+  | { readonly _tag: "unauthenticated" }
+  | { readonly _tag: "registration-required" };
+
 /**
  * Narrow a stored Member to its registered shape.
  *

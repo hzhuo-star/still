@@ -3,12 +3,13 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
   ensureCurrentMemberOutcomeValidator,
+  followIntentValidator,
   getCurrentMemberOutcomeValidator,
   getMemberProfileOutcomeValidator,
   registerCurrentMemberArgsValidator,
   registerCurrentMemberOutcomeValidator,
   listRelationshipOutcomeValidator,
-  toggleFollowOutcomeValidator,
+  setFollowOutcomeValidator,
   updateCurrentProfileArgsValidator,
   updateCurrentProfileOutcomeValidator,
 } from "./contract/member";
@@ -56,14 +57,17 @@ export const getProfile = query({
   handler: async (ctx, args) => await Members.getProfile(ctx, args.memberId),
 });
 
-/** Follow or unfollow another registered Member as the acting Member. */
-export const toggleFollow = mutation({
+/** Apply the acting Member's Follow intent toward another registered Member. */
+export const setFollow = mutation({
   args: {
-    /** The Member whose Follow relationship the acting Member is toggling. */
+    /** The Member the acting Member wants to follow or unfollow. */
     memberId: v.id("members"),
+    /** The relationship the acting Member wants to hold. */
+    intent: followIntentValidator,
   },
-  returns: toggleFollowOutcomeValidator,
-  handler: async (ctx, args) => await Members.toggleFollow(ctx, args.memberId),
+  returns: setFollowOutcomeValidator,
+  handler: async (ctx, args) =>
+    await Members.setFollow(ctx, args.memberId, args.intent),
 });
 
 /** Read the Members who follow one Member, newest relationship first. */

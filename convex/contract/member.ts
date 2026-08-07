@@ -270,15 +270,30 @@ export const memberSummaryValidator = memberIdentityValidator.extend({
 /** One registered Member as a public relationship list renders them. */
 export type MemberSummary = Readonly<Infer<typeof memberSummaryValidator>>;
 
-/** The outcome of toggling the acting Member's Follow of another Member. */
-export const toggleFollowOutcomeValidator = v.union(
+/**
+ * The relationship a Follow request asks to hold.
+ *
+ * Naming the desired relationship instead of toggling whatever exists keeps a
+ * stale request from inverting the actor's intent: asking again for a state
+ * that already holds confirms it rather than reversing it.
+ */
+export const followIntentValidator = v.union(
+  v.literal("follow"),
+  v.literal("unfollow"),
+);
+
+/** The relationship a Follow request asks to hold. */
+export type FollowIntent = Infer<typeof followIntentValidator>;
+
+/** The outcome of applying the acting Member's Follow intent. */
+export const setFollowOutcomeValidator = v.union(
   v.object({
     _tag: v.literal("ok"),
-    /** The acting Member's relationship after the toggle. */
+    /** The acting Member's relationship after the request. */
     state: v.union(v.literal("following"), v.literal("not-following")),
-    /** The followed Member's follower count after the toggle. */
+    /** The followed Member's follower count after the request. */
     followerCount: v.number(),
-    /** The acting Member's following count after the toggle. */
+    /** The acting Member's following count after the request. */
     viewerFollowingCount: v.number(),
   }),
   v.object({ _tag: v.literal("unauthenticated") }),
@@ -293,9 +308,9 @@ export const toggleFollowOutcomeValidator = v.union(
   }),
 );
 
-/** The outcome of toggling the acting Member's Follow of another Member. */
-export type ToggleFollowOutcome = Readonly<
-  Infer<typeof toggleFollowOutcomeValidator>
+/** The outcome of applying the acting Member's Follow intent. */
+export type SetFollowOutcome = Readonly<
+  Infer<typeof setFollowOutcomeValidator>
 >;
 
 /** The outcome of reading one Member's bounded relationship list. */

@@ -13,6 +13,11 @@ import { useOnboardingNavigation } from "@/members/registration";
 type FollowButtonProps = {
   /** The Member this control follows or unfollows. */
   readonly memberId: Id<"members">;
+  /**
+   * The untrusted route segment this Profile was queried with, so optimistic
+   * feedback lands on the exact query the page is reading.
+   */
+  readonly routeMemberId: string;
   /** The Member's display name, for accessible labels. */
   readonly displayName: string;
   /** The viewer's authoritative relationship to that Member. */
@@ -24,55 +29,76 @@ const buttonClassName =
 
 function FollowControl({
   memberId,
+  routeMemberId,
   displayName,
   viewerFollow,
 }: FollowButtonProps) {
-  const toggleFollow = useMutation(api.members.toggleFollow);
+  // The optimistic update rewrites the Profile query this page is already
+  // reading — Follow state and follower count together — and Convex rolls it
+  // back the moment the authoritative outcome lands, so a refused request
+  // reverts by itself and another session's changes are never masked.
+  const setFollow = useMutation(api.members.setFollow).withOptimisticUpdate(
+    (localStore, args) => {
+      const current = localStore.getQuery(api.members.getProfile, {
+        memberId: routeMemberId,
+      });
+
+      if (current === undefined || current._tag !== "ok") {
+        return;
+      }
+
+      const delta = args.intent === "follow" ? 1 : -1;
+
+      localStore.setQuery(
+        api.members.getProfile,
+        { memberId: routeMemberId },
+        {
+          ...current,
+          viewerFollow:
+            args.intent === "follow" ? "following" : "not-following",
+          profile: {
+            ...current.profile,
+            followerCount: Math.max(0, current.profile.followerCount + delta),
+          },
+        },
+      );
+    },
+  );
   const onboarding = useOnboardingNavigation();
   const [pending, setPending] = useState(false);
-  const [optimistic, setOptimistic] = useState<ViewerFollow | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  // The authoritative value wins as soon as it reflects the change.
-  const shown = optimistic ?? viewerFollow;
-  const following = shown === "following";
+  const following = viewerFollow === "following";
 
-  const onToggle = async () => {
+  const onPress = async () => {
     setPending(true);
     setFeedback(null);
-    setOptimistic(following ? "not-following" : "following");
 
     try {
-      const outcome = await toggleFollow({ memberId });
+      const outcome = await setFollow({
+        memberId,
+        intent: following ? "unfollow" : "follow",
+      });
 
       switch (outcome._tag) {
         case "ok":
-          setOptimistic(
-            outcome.state === "following" ? "following" : "not-following",
-          );
           return;
         case "unauthenticated":
-          setOptimistic(null);
           setFeedback("Your session ended. Sign in again to Follow.");
           return;
         case "registration-required":
-          setOptimistic(null);
           onboarding.start();
           return;
         case "self-follow":
-          setOptimistic(null);
           setFeedback("You cannot Follow yourself.");
           return;
         case "member-not-found":
-          setOptimistic(null);
           setFeedback("This Member is no longer available.");
           return;
         case "member-not-registered":
-          setOptimistic(null);
           setFeedback("This Member has not finished setting up yet.");
           return;
         case "follow-limit-reached":
-          setOptimistic(null);
           setFeedback(
             `You already Follow ${MAX_FOLLOWING} Members. Unfollow someone to make room.`,
           );
@@ -81,7 +107,6 @@ function FollowControl({
           casesHandled(outcome);
       }
     } catch {
-      setOptimistic(null);
       setFeedback("Your Follow didn’t reach Still. Try again.");
     } finally {
       setPending(false);
@@ -102,7 +127,7 @@ function FollowControl({
         }`}
         disabled={pending}
         onClick={() => {
-          void onToggle();
+          void onPress();
         }}
         type="button"
       >
@@ -122,7 +147,9 @@ function FollowControl({
  *
  * A visitor is asked to sign in, an identity awaiting onboarding is sent there
  * by the mutation's precise refusal, and the Member's own Profile shows no
- * control at all.
+ * control at all. A press shows its Follow state and follower count
+ * optimistically and rolls back with accessible feedback when the authoritative
+ * outcome refuses it.
  */
 export function FollowButton(props: FollowButtonProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();

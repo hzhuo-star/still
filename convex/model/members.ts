@@ -4,13 +4,14 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type {
   EnsureCurrentMemberOutcome,
+  FollowIntent,
   GetCurrentMemberOutcome,
   GetMemberProfileOutcome,
   MemberIdentity,
   MemberRegistrationDefaults,
   RegisterCurrentMemberOutcome,
-  ToggleFollowOutcome,
   RegisteredMemberProfile,
+  SetFollowOutcome,
   UpdateCurrentProfileOutcome,
 } from "../contract/member";
 import * as MemberProfile from "../lib/memberProfile";
@@ -23,7 +24,7 @@ import {
   toMemberIdentity,
   toMemberProfile,
   toRegisteredProfile,
-  type RegisteredMemberRecord,
+  type ActingMember,
 } from "./memberProjection";
 
 function findByExternalId(
@@ -110,15 +111,7 @@ export async function requireCurrent(
     : current;
 }
 
-/** The acting Member's own record, or why a Member-only operation cannot run. */
-type CurrentRegisteredMember =
-  | { readonly _tag: "ok"; readonly member: RegisteredMemberRecord }
-  | { readonly _tag: "unauthenticated" }
-  | { readonly _tag: "registration-required" };
-
-async function currentRegisteredMember(
-  ctx: QueryCtx,
-): Promise<CurrentRegisteredMember> {
+async function currentRegisteredMember(ctx: QueryCtx): Promise<ActingMember> {
   const identity = await ctx.auth.getUserIdentity();
 
   if (identity === null) {
@@ -466,19 +459,22 @@ export async function getProfile(
 }
 
 /**
- * Follow or unfollow another registered Member as the acting Member.
+ * Apply the acting Member's Follow intent toward another registered Member.
  *
  * @param ctx - The Convex mutation context.
  * @param followedMemberId - The Member being followed or unfollowed.
- * @returns The new relationship and both counts, or a precise failure.
+ * @param intent - The relationship the acting Member wants to hold.
+ * @returns The confirmed relationship and both counts, or a precise failure.
  */
-export async function toggleFollow(
+export async function setFollow(
   ctx: MutationCtx,
   followedMemberId: Id<"members">,
-): Promise<ToggleFollowOutcome> {
-  return await Follows.toggle(
+  intent: FollowIntent,
+): Promise<SetFollowOutcome> {
+  return await Follows.setFollow(
     ctx,
     await currentRegisteredMember(ctx),
     followedMemberId,
+    intent,
   );
 }

@@ -1,13 +1,18 @@
 "use client";
 
+import { SignInButton } from "@clerk/nextjs";
 import { useMutation } from "convex/react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { api } from "../../convex/_generated/api";
-import type { AuthoredPostView } from "../../convex/contract/post";
+import type {
+  AuthoredPostView,
+  NotEditableReason,
+} from "../../convex/contract/post";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
+import { counterAnnouncement } from "@/components/character-counter";
 import { useOnboardingNavigation } from "@/members/registration";
 
 type EditActionProps = {
@@ -23,9 +28,9 @@ type EditComposerProviderProps = {
 /** What the editor was asked to resolve before its draft can be saved. */
 type EditFailure =
   | PostContent.InvalidPostContentReason
+  | NotEditableReason
   | "post-not-found"
   | "not-author"
-  | "not-editable"
   | "unauthenticated"
   | "connection";
 
@@ -77,8 +82,10 @@ function failureMessage(reason: EditFailure): string {
       return "This Post is no longer available.";
     case "not-author":
       return "Only the author can edit a Post.";
-    case "not-editable":
+    case "deleted":
       return "This Post was deleted and can no longer be edited.";
+    case "repost":
+      return "A Repost has no text of its own, so there is nothing to edit.";
     case "unauthenticated":
       return "Your session ended. Sign in again to save this edit.";
     case "connection":
@@ -86,16 +93,6 @@ function failureMessage(reason: EditFailure): string {
     default:
       return casesHandled(reason);
   }
-}
-
-function counterAnnouncement(remaining: number): string {
-  if (remaining < 0) {
-    return `Over the ${PostContent.MAX_POST_LENGTH} character limit.`;
-  }
-  if (remaining <= 20 && remaining % 10 === 0) {
-    return `${remaining} characters left.`;
-  }
-  return "";
 }
 
 function useEditComposer(): EditComposerContextValue {
@@ -191,7 +188,7 @@ function EditComposer({
           });
           return;
         case "not-editable":
-          fail("not-editable");
+          fail(outcome.reason);
           return;
         case "post-not-found":
         case "not-author":
@@ -316,9 +313,21 @@ function EditComposer({
         />
 
         {state._tag === "editing" && state.failure !== null ? (
-          <p className="mt-2 text-body text-danger" role="alert">
-            {failureMessage(state.failure)}
-          </p>
+          <div className="mt-2" role="alert">
+            <p className="text-body text-danger">
+              {failureMessage(state.failure)}
+            </p>
+            {state.failure === "unauthenticated" ? (
+              <SignInButton>
+                <button
+                  className="mt-2 min-h-touch cursor-pointer rounded-pill bg-sage px-4 text-sm font-medium text-white hover:bg-sage-hover focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2"
+                  type="button"
+                >
+                  Sign in to continue
+                </button>
+              </SignInButton>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -331,7 +340,7 @@ function EditComposer({
               : `${-remaining} characters over`}
           </p>
           <p className="sr-only" role="status">
-            {counterAnnouncement(remaining)}
+            {counterAnnouncement(remaining, PostContent.MAX_POST_LENGTH)}
           </p>
           <div className="flex items-center gap-2">
             <button

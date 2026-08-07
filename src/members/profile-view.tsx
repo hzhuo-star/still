@@ -143,6 +143,7 @@ export function ProfileView({ memberId }: ProfileViewProps) {
         <FollowButton
           displayName={profile.profile.displayName}
           memberId={profile.profile.memberId}
+          routeMemberId={memberId}
           viewerFollow={profile.viewerFollow}
         />
       </header>

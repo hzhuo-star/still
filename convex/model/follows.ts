@@ -3,9 +3,10 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   MAX_FOLLOWING,
   RELATIONSHIP_LIMIT,
+  type FollowIntent,
   type ListRelationshipOutcome,
   type MemberSummary,
-  type ToggleFollowOutcome,
+  type SetFollowOutcome,
   type ViewerFollow,
 } from "../contract/member";
 import { shouldNeverHappen } from "../lib/result";
@@ -13,14 +14,9 @@ import {
   asRegistered,
   followCounts,
   toMemberSummary,
+  type ActingMember,
   type RegisteredMemberRecord,
 } from "./memberProjection";
-
-/** The acting Member of a Follow operation, or why there is none. */
-type ActingMember =
-  | { readonly _tag: "ok"; readonly member: RegisteredMemberRecord }
-  | { readonly _tag: "unauthenticated" }
-  | { readonly _tag: "registration-required" };
 
 function findRelation(
   ctx: QueryCtx,
@@ -62,25 +58,28 @@ export function viewerFollow(
 }
 
 /**
- * Follow or unfollow another registered Member as the acting Member.
+ * Apply the acting Member's Follow intent toward another registered Member.
  *
- * The relation, both counters, and the outgoing limit are read and written in
- * one transaction, so a retried or concurrent toggle can never leave two
- * relations, a counter that disagrees with the graph, or a 51st outgoing
- * Follow. Counters are recomputed from the relation that actually changed
- * rather than assumed, so an already-removed relation cannot push a count below
- * the true graph.
+ * The intent names the relationship the actor wants to hold, so a stale
+ * request can never invert their action: asking to unfollow a relation that is
+ * already gone, or to follow one that already exists, confirms the current
+ * state without writing or moving a counter. The relation, both counters, and
+ * the outgoing limit are read and written in one transaction, so a retried or
+ * concurrent request can never leave two relations, a counter that disagrees
+ * with the graph, or a 51st outgoing Follow.
  *
  * @param ctx - The Convex mutation context.
  * @param acting - The acting Member, or why the operation cannot run.
  * @param followedMemberId - The Member being followed or unfollowed.
- * @returns The new relationship and both counts, or a precise failure.
+ * @param intent - The relationship the acting Member wants to hold.
+ * @returns The confirmed relationship and both counts, or a precise failure.
  */
-export async function toggle(
+export async function setFollow(
   ctx: MutationCtx,
   acting: ActingMember,
   followedMemberId: Id<"members">,
-): Promise<ToggleFollowOutcome> {
+  intent: FollowIntent,
+): Promise<SetFollowOutcome> {
   if (acting._tag !== "ok") {
     return acting;
   }
@@ -102,13 +101,29 @@ export async function toggle(
 
   const relation = await findRelation(ctx, follower._id, followed._id);
 
-  if (relation !== null) {
+  if (intent === "unfollow") {
+    if (relation === null) {
+      return {
+        _tag: "ok",
+        state: "not-following",
+        ...currentCounts(follower, followed),
+      };
+    }
+
     await ctx.db.delete("follows", relation._id);
 
     return {
       _tag: "ok",
       state: "not-following",
-      ...(await refreshCounts(ctx, follower._id, followed._id)),
+      ...(await applyCountDelta(ctx, follower, followed, -1)),
+    };
+  }
+
+  if (relation !== null) {
+    return {
+      _tag: "ok",
+      state: "following",
+      ...currentCounts(follower, followed),
     };
   }
 
@@ -124,46 +139,50 @@ export async function toggle(
   return {
     _tag: "ok",
     state: "following",
-    ...(await refreshCounts(ctx, follower._id, followed._id)),
+    ...(await applyCountDelta(ctx, follower, followed, 1)),
+  };
+}
+
+/** Both published counters as the stored Members already carry them. */
+function currentCounts(
+  follower: RegisteredMemberRecord,
+  followed: Doc<"members">,
+): {
+  readonly followerCount: number;
+  readonly viewerFollowingCount: number;
+} {
+  return {
+    followerCount: followCounts(followed).followerCount,
+    viewerFollowingCount: followCounts(follower).followingCount,
   };
 }
 
 /**
- * Recount both sides of a changed relationship from the stored relations.
+ * Move both counters by the one relation this transaction inserted or deleted.
  *
- * Counting the indexed relations keeps the published counters equal to the
- * graph even when a relation was removed outside a toggle.
+ * The delta lands in the same transaction as the relation write it mirrors,
+ * and every relation write goes through {@link setFollow}, so the serialized
+ * counters always equal the stored graph without recounting the uncapped
+ * follower side.
  */
-async function refreshCounts(
+async function applyCountDelta(
   ctx: MutationCtx,
-  followerId: Id<"members">,
-  followedId: Id<"members">,
+  follower: RegisteredMemberRecord,
+  followed: Doc<"members">,
+  delta: 1 | -1,
 ): Promise<{
   readonly followerCount: number;
   readonly viewerFollowingCount: number;
 }> {
-  const [outgoing, incoming] = await Promise.all([
-    ctx.db
-      .query("follows")
-      .withIndex("by_followerId", (q) => q.eq("followerId", followerId))
-      .collect(),
-    ctx.db
-      .query("follows")
-      .withIndex("by_followedId", (q) => q.eq("followedId", followedId))
-      .collect(),
-  ]);
+  const followerCount = followCounts(followed).followerCount + delta;
+  const viewerFollowingCount = followCounts(follower).followingCount + delta;
 
-  await ctx.db.patch("members", followerId, {
-    followingCount: outgoing.length,
-  });
-  await ctx.db.patch("members", followedId, {
-    followerCount: incoming.length,
+  await ctx.db.patch("members", followed._id, { followerCount });
+  await ctx.db.patch("members", follower._id, {
+    followingCount: viewerFollowingCount,
   });
 
-  return {
-    followerCount: incoming.length,
-    viewerFollowingCount: outgoing.length,
-  };
+  return { followerCount, viewerFollowingCount };
 }
 
 /**

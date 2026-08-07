@@ -7,6 +7,7 @@ import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
+import { counterAnnouncement } from "@/components/character-counter";
 import { OnboardingInvite } from "@/members/onboarding-invite";
 import {
   useOnboardingNavigation,
@@ -34,18 +35,6 @@ function failureMessage(reason: ComposerFailure): string {
     default:
       return casesHandled(reason);
   }
-}
-
-function counterAnnouncement(remaining: number): string {
-  if (remaining < 0) {
-    return `Over the ${PostContent.MAX_POST_LENGTH} character limit.`;
-  }
-
-  if (remaining <= 20 && remaining % 10 === 0) {
-    return `${remaining} characters left.`;
-  }
-
-  return "";
 }
 
 function ComposerForm() {
@@ -145,7 +134,7 @@ function ComposerForm() {
             : `${-remaining} characters over`}
         </p>
         <p className="sr-only" role="status">
-          {counterAnnouncement(remaining)}
+          {counterAnnouncement(remaining, PostContent.MAX_POST_LENGTH)}
         </p>
         <button
           className="min-h-touch cursor-pointer rounded-pill bg-sage px-5 text-sm font-medium text-white transition-colors ease-still hover:bg-sage-hover focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-default disabled:opacity-70"

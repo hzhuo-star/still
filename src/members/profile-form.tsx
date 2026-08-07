@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import type { InvalidMemberProfileOutcome } from "../../convex/contract/member";
 import * as MemberProfile from "../../convex/lib/memberProfile";
 import { casesHandled } from "../../convex/lib/result";
+import { counterAnnouncement } from "@/components/character-counter";
 
 /** The Still-owned Profile values a form submits. */
 export type ProfileSubmission = {
@@ -120,18 +121,6 @@ function failureField(
     default:
       return casesHandled(failure);
   }
-}
-
-function biographyAnnouncement(remaining: number): string {
-  if (remaining < 0) {
-    return `Over the ${MemberProfile.MAX_BIOGRAPHY_LENGTH} character limit.`;
-  }
-
-  if (remaining <= 20 && remaining % 10 === 0) {
-    return `${remaining} characters left.`;
-  }
-
-  return "";
 }
 
 const labelClassName = "block text-body font-medium text-ink";
@@ -353,7 +342,7 @@ export function ProfileForm({
             : `${-remaining} characters over`}
         </p>
         <p className="sr-only" role="status">
-          {biographyAnnouncement(remaining)}
+          {counterAnnouncement(remaining, MemberProfile.MAX_BIOGRAPHY_LENGTH)}
         </p>
       </div>
 

@@ -17,21 +17,30 @@ type RelationshipListProps = {
   readonly direction: RelationshipDirection;
 };
 
-function heading(direction: RelationshipDirection): string {
-  return direction === "followers" ? "Followers" : "Following";
-}
-
-function emptyMessage(direction: RelationshipDirection): string {
-  return direction === "followers"
-    ? "No one Follows this Member yet."
-    : "This Member does not Follow anyone yet.";
-}
-
-function endingMessage(direction: RelationshipDirection): string {
-  return direction === "followers"
-    ? `Showing the newest ${RELATIONSHIP_LIMIT} Followers`
-    : `Showing the newest ${RELATIONSHIP_LIMIT} Members`;
-}
+/** Everything that distinguishes one direction's route from the other's. */
+const directionPresentation = {
+  followers: {
+    query: api.members.listFollowers,
+    heading: "Followers",
+    emptyMessage: "No one Follows this Member yet.",
+    truncationMessage: `Showing the newest ${RELATIONSHIP_LIMIT} Followers`,
+  },
+  following: {
+    query: api.members.listFollowing,
+    heading: "Following",
+    emptyMessage: "This Member does not Follow anyone yet.",
+    truncationMessage: `Showing the newest ${RELATIONSHIP_LIMIT} Members`,
+  },
+} as const satisfies Record<
+  RelationshipDirection,
+  {
+    readonly query:
+      typeof api.members.listFollowers | typeof api.members.listFollowing;
+    readonly heading: string;
+    readonly emptyMessage: string;
+    readonly truncationMessage: string;
+  }
+>;
 
 /**
  * One Member's public follower or following list: current Member summaries,
@@ -41,12 +50,8 @@ export function RelationshipList({
   memberId,
   direction,
 }: RelationshipListProps) {
-  const outcome = useQuery(
-    direction === "followers"
-      ? api.members.listFollowers
-      : api.members.listFollowing,
-    { memberId },
-  );
+  const presentation = directionPresentation[direction];
+  const outcome = useQuery(presentation.query, { memberId });
 
   return (
     <>
@@ -54,12 +59,12 @@ export function RelationshipList({
         className="font-reading text-title text-ink"
         id="relationship-list-title"
       >
-        {heading(direction)}
+        {presentation.heading}
       </h1>
 
       {outcome === undefined ? (
         <p className="mt-8 text-body text-muted" role="status">
-          {`Loading ${heading(direction)}…`}
+          {`Loading ${presentation.heading}…`}
         </p>
       ) : outcome._tag === "member-not-found" ? (
         <>
@@ -75,7 +80,7 @@ export function RelationshipList({
           </Link>
         </>
       ) : outcome.members.length === 0 ? (
-        <p className="mt-8 text-body text-muted">{emptyMessage(direction)}</p>
+        <p className="mt-8 text-body text-muted">{presentation.emptyMessage}</p>
       ) : (
         <>
           <ul className="mt-6 list-none p-0">
@@ -106,7 +111,7 @@ export function RelationshipList({
           <p className="border-t border-line py-6 text-meta text-muted">
             {outcome.ending === "complete"
               ? "You’re at the end"
-              : endingMessage(direction)}
+              : presentation.truncationMessage}
           </p>
           <Link
             className="inline-flex min-h-touch items-center text-sm font-medium text-sage no-underline hover:underline focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-surface"

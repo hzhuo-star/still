@@ -16,6 +16,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import type { AuthoredPostView } from "../../convex/contract/post";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
+import { counterAnnouncement } from "@/components/character-counter";
 import { OnboardingInvite } from "@/members/onboarding-invite";
 import {
   useOnboardingNavigation,
@@ -92,16 +93,6 @@ function failureMessage(reason: ReplyFailure): string {
     default:
       return casesHandled(reason);
   }
-}
-
-function counterAnnouncement(remaining: number): string {
-  if (remaining < 0) {
-    return `Over the ${PostContent.MAX_POST_LENGTH} character limit.`;
-  }
-  if (remaining <= 20 && remaining % 10 === 0) {
-    return `${remaining} characters left.`;
-  }
-  return "";
 }
 
 function SignedOutReplyInvite() {
@@ -299,7 +290,7 @@ function ReplyForm({
             : `${-remaining} characters over`}
         </p>
         <p className="sr-only" role="status">
-          {counterAnnouncement(remaining)}
+          {counterAnnouncement(remaining, PostContent.MAX_POST_LENGTH)}
         </p>
         <div className="flex items-center gap-2">
           <button
