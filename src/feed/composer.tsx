@@ -7,6 +7,11 @@ import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
+import { OnboardingInvite } from "@/members/onboarding-invite";
+import {
+  useOnboardingNavigation,
+  useRegistrationState,
+} from "@/members/registration";
 
 type ComposerFailure =
   PostContent.InvalidPostContentReason | "unauthenticated" | "connection";
@@ -47,6 +52,7 @@ function ComposerForm() {
   const [draft, setDraft] = useState("");
   const [state, setState] = useState<ComposerState>({ _tag: "idle" });
   const createPost = useMutation(api.posts.create);
+  const onboarding = useOnboardingNavigation();
 
   const remaining = PostContent.remainingCharacters(draft);
   const pending = state._tag === "pending";
@@ -74,6 +80,9 @@ function ComposerForm() {
           return;
         case "unauthenticated":
           setState({ _tag: "failed", reason: "unauthenticated" });
+          return;
+        case "registration-required":
+          onboarding.start();
           return;
         default:
           casesHandled(outcome);
@@ -176,15 +185,34 @@ function SignInInvite() {
   );
 }
 
+function SignedInComposer() {
+  const registration = useRegistrationState();
+
+  if (registration._tag === "loading") {
+    return (
+      <p className="text-body text-muted" role="status">
+        Preparing the composer…
+      </p>
+    );
+  }
+
+  return registration._tag === "registration-required" ? (
+    <OnboardingInvite action="publish" />
+  ) : (
+    <ComposerForm />
+  );
+}
+
 /**
  * The Feed's publishing area: an accessible composer with a live character
- * counter for signed-in Members, or a quiet sign-in path for visitors.
+ * counter for registered Members, an onboarding path for identities awaiting
+ * Registration, or a quiet sign-in path for visitors.
  */
 export function Composer() {
   return (
     <>
       <Show when="signed-in">
-        <ComposerForm />
+        <SignedInComposer />
       </Show>
       <Show when="signed-out">
         <SignInInvite />

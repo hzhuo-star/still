@@ -19,7 +19,12 @@ import {
   type ToggleRepostOutcome,
 } from "../contract/post";
 import { shouldNeverHappen } from "../lib/result";
-import { currentMemberId, ensureCurrent, getProfile } from "./members";
+import {
+  currentMemberId,
+  getIdentity,
+  getProfile,
+  requireCurrent,
+} from "./members";
 
 async function toPostView(
   ctx: QueryCtx,
@@ -35,13 +40,11 @@ async function toPostView(
       );
     }
 
-    const authorOutcome = await getProfile(ctx, post.authorId);
     const author =
-      authorOutcome._tag === "ok"
-        ? authorOutcome.profile
-        : shouldNeverHappen(
-            "Repost author missing; Member deletion is out of scope",
-          );
+      (await getIdentity(ctx, post.authorId)) ??
+      shouldNeverHappen(
+        "Repost author missing; Member deletion is out of scope",
+      );
 
     return {
       postId: post._id,
@@ -65,13 +68,9 @@ async function toAuthoredPostView(
     return shouldNeverHappen("Only active authored Posts have display models");
   }
 
-  const authorOutcome = await getProfile(ctx, post.authorId);
   const author =
-    authorOutcome._tag === "ok"
-      ? authorOutcome.profile
-      : shouldNeverHappen(
-          "Post author missing; Member deletion is out of scope",
-        );
+    (await getIdentity(ctx, post.authorId)) ??
+    shouldNeverHappen("Post author missing; Member deletion is out of scope");
 
   const like =
     viewerId === null
@@ -150,13 +149,11 @@ async function toQuoteReferenceView(
     return { _tag: "unavailable" };
   }
 
-  const authorOutcome = await getProfile(ctx, post.authorId);
   const author =
-    authorOutcome._tag === "ok"
-      ? authorOutcome.profile
-      : shouldNeverHappen(
-          "Quote target author missing; Member deletion is out of scope",
-        );
+    (await getIdentity(ctx, post.authorId)) ??
+    shouldNeverHappen(
+      "Quote target author missing; Member deletion is out of scope",
+    );
   const common = {
     postId: post._id,
     content: post.content,
@@ -181,13 +178,9 @@ async function toActiveParentView(
     return shouldNeverHappen("Active authored Post missing its author");
   }
 
-  const authorOutcome = await getProfile(ctx, post.authorId);
   const author =
-    authorOutcome._tag === "ok"
-      ? authorOutcome.profile
-      : shouldNeverHappen(
-          "Post author missing; Member deletion is out of scope",
-        );
+    (await getIdentity(ctx, post.authorId)) ??
+    shouldNeverHappen("Post author missing; Member deletion is out of scope");
 
   return { _tag: "active", postId: post._id, author };
 }
@@ -378,9 +371,9 @@ export async function create(
   ctx: MutationCtx,
   content: string,
 ): Promise<CreatePostOutcome> {
-  const member = await ensureCurrent(ctx);
+  const member = await requireCurrent(ctx);
 
-  if (member._tag === "unauthenticated") {
+  if (member._tag !== "ok") {
     return member;
   }
 
@@ -395,6 +388,7 @@ export async function create(
     kind: "standalone",
     authorId: member.memberId,
     content: parsed.value,
+    revision: 0,
     likeCount: 0,
     activeReplyCount: 0,
     activeRepostCount: 0,
@@ -521,8 +515,8 @@ export async function createQuote(
   targetPostId: Doc<"posts">["_id"],
   commentary: string,
 ): Promise<CreateQuoteOutcome> {
-  const member = await ensureCurrent(ctx);
-  if (member._tag === "unauthenticated") {
+  const member = await requireCurrent(ctx);
+  if (member._tag !== "ok") {
     return member;
   }
 
@@ -560,6 +554,7 @@ export async function createQuote(
     kind: "quote",
     authorId: member.memberId,
     content: parsed.value,
+    revision: 0,
     likeCount: 0,
     activeReplyCount: 0,
     activeRepostCount: 0,
@@ -582,8 +577,8 @@ export async function createReply(
   parentPostId: Doc<"posts">["_id"],
   content: string,
 ): Promise<CreateReplyOutcome> {
-  const member = await ensureCurrent(ctx);
-  if (member._tag === "unauthenticated") {
+  const member = await requireCurrent(ctx);
+  if (member._tag !== "ok") {
     return member;
   }
 
@@ -615,6 +610,7 @@ export async function createReply(
     kind: "reply",
     authorId: member.memberId,
     content: parsed.value,
+    revision: 0,
     likeCount: 0,
     activeReplyCount: 0,
     activeRepostCount: 0,
@@ -701,9 +697,9 @@ export async function toggleLike(
   ctx: MutationCtx,
   postId: Doc<"posts">["_id"],
 ): Promise<ToggleLikeOutcome> {
-  const member = await ensureCurrent(ctx);
+  const member = await requireCurrent(ctx);
 
-  if (member._tag === "unauthenticated") {
+  if (member._tag !== "ok") {
     return member;
   }
 
@@ -748,9 +744,9 @@ export async function toggleRepost(
   ctx: MutationCtx,
   postId: Doc<"posts">["_id"],
 ): Promise<ToggleRepostOutcome> {
-  const member = await ensureCurrent(ctx);
+  const member = await requireCurrent(ctx);
 
-  if (member._tag === "unauthenticated") {
+  if (member._tag !== "ok") {
     return member;
   }
 
@@ -794,9 +790,9 @@ export async function remove(
   ctx: MutationCtx,
   postId: Doc<"posts">["_id"],
 ): Promise<RemovePostOutcome> {
-  const member = await ensureCurrent(ctx);
+  const member = await requireCurrent(ctx);
 
-  if (member._tag === "unauthenticated") {
+  if (member._tag !== "ok") {
     return member;
   }
 

@@ -9,11 +9,19 @@ A deployed, reviewable product whose purpose is to demonstrate engineering judgm
 _Avoid_: Demo, tutorial, full Twitter clone
 
 **Member**:
-A person with an authenticated identity who can publish and like posts.
+A person with an authenticated identity who can publish and like posts and follow other members.
 _Avoid_: User, account, tweeter
 
+**Member Registration**:
+The onboarding transition that initializes a member and their profile from an authenticated identity after they choose a unique handle and display name.
+_Avoid_: User registration, account creation
+
+**Handle**:
+A unique, human-readable identifier through which a member can be found.
+_Avoid_: Username, screen name
+
 **Post**:
-A publication created by a member. Every post is exactly one of a standalone post, reply, quote post, or repost; when it contains text, that text is at most 280 characters. A published post cannot be edited.
+A publication created by a member. Every post is exactly one of a standalone post, reply, quote post, or repost; when it contains text, that text is at most 280 characters and may be edited while the post is active.
 _Avoid_: Tweet, status
 
 **Standalone Post**:
@@ -44,10 +52,18 @@ _Avoid_: Deleted-content snapshot, removed post
 The public, reverse-chronological collection of posts from all members.
 _Avoid_: Timeline, personalized feed
 
+**Following Feed**:
+A member's reverse-chronological collection of posts selected through that member's follow relationships.
+_Avoid_: Timeline, personalized feed, algorithmic feed
+
+**Follow**:
+A public, one-way relationship in which one member chooses to receive another member's eligible posts in their following feed.
+_Avoid_: Friend, connection, subscription
+
 **Like**:
 A member's reversible positive signal on a post; each member may like a post at most once.
 _Avoid_: Favorite, reaction
 
 **Profile**:
-The public, read-only identity and collection of posts belonging to one member.
+The public handle, display name, biography, identity image, and collection of posts belonging to one member.
 _Avoid_: Account page, user page

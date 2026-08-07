@@ -10,12 +10,14 @@
 
 import type * as contract_member from "../contract/member.js";
 import type * as contract_post from "../contract/post.js";
+import type * as lib_memberProfile from "../lib/memberProfile.js";
 import type * as lib_postContent from "../lib/postContent.js";
 import type * as lib_result from "../lib/result.js";
 import type * as members from "../members.js";
 import type * as model_members from "../model/members.js";
 import type * as model_posts from "../model/posts.js";
 import type * as posts from "../posts.js";
+import type * as socialMigrations from "../socialMigrations.js";
 import type * as status from "../status.js";
 
 import type {
@@ -27,12 +29,14 @@ import type {
 declare const fullApi: ApiFromModules<{
   "contract/member": typeof contract_member;
   "contract/post": typeof contract_post;
+  "lib/memberProfile": typeof lib_memberProfile;
   "lib/postContent": typeof lib_postContent;
   "lib/result": typeof lib_result;
   members: typeof members;
   "model/members": typeof model_members;
   "model/posts": typeof model_posts;
   posts: typeof posts;
+  socialMigrations: typeof socialMigrations;
   status: typeof status;
 }>;
 
@@ -62,4 +66,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
+};

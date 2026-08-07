@@ -7,6 +7,7 @@ import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { AuthoredPostView, PostView } from "../../convex/contract/post";
 import { casesHandled } from "../../convex/lib/result";
+import { useOnboardingNavigation } from "@/members/registration";
 
 type LikeButtonProps = {
   /** The Post whose Like state this control toggles. */
@@ -27,6 +28,7 @@ const buttonClassName =
  */
 export function LikeButton({ post }: LikeButtonProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const onboarding = useOnboardingNavigation();
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const toggleLike = useMutation(api.posts.toggleLike).withOptimisticUpdate(
@@ -125,6 +127,9 @@ export function LikeButton({ post }: LikeButtonProps) {
           return;
         case "unauthenticated":
           setFeedback("Your session ended. Sign in again to Like Posts.");
+          return;
+        case "registration-required":
+          onboarding.start();
           return;
         case "post-not-found":
           setFeedback("This Post was deleted.");

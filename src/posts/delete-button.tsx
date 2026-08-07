@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { casesHandled } from "../../convex/lib/result";
+import { useOnboardingNavigation } from "@/members/registration";
 
 type DeleteButtonProps = {
   /** The Post this control deletes; shown only to its author. */
@@ -25,6 +26,7 @@ type DeleteState =
 export function DeleteButton({ postId }: DeleteButtonProps) {
   const [state, setState] = useState<DeleteState>({ _tag: "idle" });
   const removePost = useMutation(api.posts.remove);
+  const onboarding = useOnboardingNavigation();
 
   const onDelete = async () => {
     setState({ _tag: "pending" });
@@ -49,6 +51,9 @@ export function DeleteButton({ postId }: DeleteButtonProps) {
             _tag: "failed",
             message: "Your session ended. Sign in again to delete.",
           });
+          return;
+        case "registration-required":
+          onboarding.start();
           return;
         default:
           casesHandled(outcome);

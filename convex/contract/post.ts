@@ -1,6 +1,9 @@
 import { v, type Infer } from "convex/values";
 
-import { memberProfileValidator } from "./member";
+import {
+  memberIdentityValidator,
+  registrationRequiredOutcomeValidator,
+} from "./member";
 
 /** The maximum number of Posts a Feed or Profile renders. */
 export const FEED_LIMIT = 50;
@@ -37,7 +40,7 @@ const postViewFields = {
   /** Whether the current viewer may delete the Post. */
   viewerCanDelete: v.boolean(),
   /** The Post author's projected public identity. */
-  author: memberProfileValidator,
+  author: memberIdentityValidator,
 } as const;
 
 /** A shallow immediate-parent label for a Reply in a flat Conversation. */
@@ -45,7 +48,7 @@ export const replyParentViewValidator = v.union(
   v.object({
     _tag: v.literal("active"),
     postId: v.id("posts"),
-    author: memberProfileValidator,
+    author: memberIdentityValidator,
   }),
   v.object({
     _tag: v.literal("tombstone"),
@@ -64,7 +67,7 @@ const quoteTargetPreviewFields = {
   /** The referenced Post's original publication time. */
   publishedAt: v.number(),
   /** The referenced Post author's projected public identity. */
-  author: memberProfileValidator,
+  author: memberIdentityValidator,
 } as const;
 
 /** One available shallow Quote target without recursive relationships. */
@@ -141,7 +144,7 @@ export const repostPostViewValidator = v.object({
   /** Whether the current viewer may remove this Repost wrapper. */
   viewerCanRemove: v.boolean(),
   /** The reposter's projected public identity. */
-  author: memberProfileValidator,
+  author: memberIdentityValidator,
   /** The live, non-recursive ultimate source display. */
   source: authoredPostViewValidator,
 });
@@ -228,6 +231,7 @@ export type ListByMemberOutcome = Readonly<
 export const createPostOutcomeValidator = v.union(
   v.object({ _tag: v.literal("ok"), postId: v.id("posts") }),
   v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
   v.object({
     _tag: v.literal("invalid-content"),
     /** Why the composer draft could not become Post content. */
@@ -250,6 +254,7 @@ export const createReplyArgsValidator = v.object({
 export const createReplyOutcomeValidator = v.union(
   v.object({ _tag: v.literal("ok"), postId: v.id("posts") }),
   v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
   v.object({
     _tag: v.literal("invalid-content"),
     reason: v.union(v.literal("empty"), v.literal("too-long")),
@@ -284,6 +289,7 @@ export const createQuoteOutcomeValidator = v.union(
     activeRepostCount: v.number(),
   }),
   v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
   v.object({ _tag: v.literal("already-reposted") }),
   v.object({
     _tag: v.literal("invalid-content"),
@@ -336,6 +342,7 @@ export const toggleLikeOutcomeValidator = v.union(
     likeCount: v.number(),
   }),
   v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
   v.object({ _tag: v.literal("post-not-found") }),
   v.object({ _tag: v.literal("post-unavailable") }),
 );
@@ -355,6 +362,7 @@ export const toggleRepostOutcomeValidator = v.union(
     activeRepostCount: v.number(),
   }),
   v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
   v.object({ _tag: v.literal("post-not-found") }),
   v.object({ _tag: v.literal("post-unavailable") }),
 );
@@ -368,6 +376,7 @@ export type ToggleRepostOutcome = Readonly<
 export const removePostOutcomeValidator = v.union(
   v.object({ _tag: v.literal("ok") }),
   v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
   v.object({ _tag: v.literal("forbidden") }),
   v.object({ _tag: v.literal("post-not-found") }),
 );

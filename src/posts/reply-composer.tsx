@@ -16,6 +16,11 @@ import type { Id } from "../../convex/_generated/dataModel";
 import type { AuthoredPostView } from "../../convex/contract/post";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
+import { OnboardingInvite } from "@/members/onboarding-invite";
+import {
+  useOnboardingNavigation,
+  useRegistrationState,
+} from "@/members/registration";
 
 type ReplyComposerProps = {
   /** The active authored Post selected as the direct parent. */
@@ -130,6 +135,7 @@ function ReplyForm({
   const previouslyRequestedOpen = useRef(initiallyOpen);
   const previousOpenRequest = useRef(openRequest);
   const createReply = useMutation(api.posts.createReply);
+  const onboarding = useOnboardingNavigation();
   const pending = state._tag === "pending";
   const draft = state._tag === "closed" ? "" : state.draft;
   const remaining = PostContent.remainingCharacters(draft);
@@ -208,6 +214,9 @@ function ReplyForm({
         case "target-not-found":
         case "target-deleted":
           setState({ _tag: "editing", draft, failure: outcome._tag });
+          return;
+        case "registration-required":
+          onboarding.start();
           return;
         case "target-is-repost":
           setState({
@@ -317,13 +326,24 @@ function ReplyForm({
 }
 
 /**
- * Renders the contextual pessimistic Reply composer, requesting sign-in
- * before mounting a draft for visitors.
+ * Renders the contextual pessimistic Reply composer, requesting sign-in or
+ * Member Registration before mounting a draft that could be lost.
  */
 export function ReplyComposer(props: ReplyComposerProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();
-  if (isLoading) {
+  const registration = useRegistrationState();
+
+  if (isLoading || (isAuthenticated && registration._tag === "loading")) {
     return <p className="text-meta text-muted">Preparing the composer…</p>;
   }
-  return isAuthenticated ? <ReplyForm {...props} /> : <SignedOutReplyInvite />;
+
+  if (!isAuthenticated) {
+    return <SignedOutReplyInvite />;
+  }
+
+  return registration._tag === "registration-required" ? (
+    <OnboardingInvite action="Reply" />
+  ) : (
+    <ReplyForm {...props} />
+  );
 }

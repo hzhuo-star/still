@@ -15,6 +15,10 @@ import { api } from "../../convex/_generated/api";
 import type { AuthoredPostView } from "../../convex/contract/post";
 import * as PostContent from "../../convex/lib/postContent";
 import { casesHandled } from "../../convex/lib/result";
+import {
+  useOnboardingNavigation,
+  useRegistrationState,
+} from "@/members/registration";
 import { QuotedPostPreview } from "@/posts/quoted-post-preview";
 
 type QuoteActionProps = {
@@ -104,6 +108,7 @@ function QuoteComposer({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const createQuote = useMutation(api.posts.createQuote);
+  const onboarding = useOnboardingNavigation();
   const conversation = useQuery(api.posts.getConversation, {
     postId: post.postId,
   });
@@ -159,6 +164,9 @@ function QuoteComposer({
         case "target-not-found":
         case "target-deleted":
           setState({ _tag: "editing", draft, failure: outcome._tag });
+          return;
+        case "registration-required":
+          onboarding.start();
           return;
         default:
           casesHandled(outcome);
@@ -305,12 +313,17 @@ export function QuoteComposerProvider({
   );
 }
 
-/** Requests authentication before opening the shared Quote composer dialog. */
+/**
+ * Requests authentication, then Member Registration, before opening the shared
+ * Quote composer dialog.
+ */
 export function QuoteAction({ post }: QuoteActionProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const registration = useRegistrationState();
+  const onboarding = useOnboardingNavigation();
   const composer = useQuoteComposer();
 
-  if (isLoading) {
+  if (isLoading || (isAuthenticated && registration._tag === "loading")) {
     return (
       <button className={actionClassName} disabled type="button">
         Quote
@@ -329,6 +342,19 @@ export function QuoteAction({ post }: QuoteActionProps) {
           Quote
         </button>
       </SignInButton>
+    );
+  }
+
+  if (registration._tag === "registration-required") {
+    return (
+      <button
+        aria-label="Finish setting up your Member to Quote this Post."
+        className={actionClassName}
+        onClick={onboarding.start}
+        type="button"
+      >
+        Quote
+      </button>
     );
   }
 

@@ -106,9 +106,17 @@ export function ProfileView({ memberId }: ProfileViewProps) {
           <h1 className="truncate font-reading text-title text-ink">
             {profile.profile.displayName}
           </h1>
-          <p className="text-meta text-muted">Member Profile</p>
+          <p className="truncate text-meta text-muted">
+            {profile.profile.registrationState === "registered"
+              ? `@${profile.profile.handle}`
+              : "Member Profile"}
+          </p>
         </div>
       </header>
+      {profile.profile.registrationState === "registered" &&
+      profile.profile.biography !== undefined ? (
+        <p className="mt-4 text-body text-ink">{profile.profile.biography}</p>
+      ) : null}
       <section
         aria-label={`Posts by ${profile.profile.displayName}`}
         className="mt-10"

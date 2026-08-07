@@ -22,6 +22,12 @@ function standalonePosts(
   );
 }
 
+/** The Clerk-shaped identity fields these fixtures rely on. */
+type TestIdentity = {
+  readonly subject: string;
+  readonly name?: string;
+};
+
 const aliceIdentity = {
   subject: "user_alice",
   name: "Alice Reader",
@@ -33,14 +39,50 @@ const benIdentity = {
   name: "Ben Quiet",
 } as const;
 
-async function publish(
+/**
+ * Complete Member Registration for a test identity. Member-only mutations
+ * require a registered Member, so every fixture that acts registers first.
+ */
+async function registerMember(
   backend: TestConvex<typeof schema>,
-  identity: { subject: string; name?: string },
-  content: string,
-): Promise<Id<"posts">> {
+  identity: TestIdentity,
+): Promise<Id<"members">> {
   const outcome = await backend
     .withIdentity(identity)
-    .mutation(api.posts.create, { content });
+    .mutation(api.members.registerCurrent, {
+      handle: identity.subject,
+      displayName: identity.name ?? "Member",
+      biography: "",
+    });
+
+  if (outcome._tag === "ok") {
+    return outcome.profile.memberId;
+  }
+
+  if (outcome._tag === "already-registered") {
+    return outcome.memberId;
+  }
+
+  throw new Error(`Expected a registered Member, got ${outcome._tag}`);
+}
+
+/** Return a registered identity's backend, registering it when needed. */
+async function asMember(
+  backend: TestConvex<typeof schema>,
+  identity: TestIdentity,
+): Promise<ReturnType<TestConvex<typeof schema>["withIdentity"]>> {
+  await registerMember(backend, identity);
+  return backend.withIdentity(identity);
+}
+
+async function publish(
+  backend: TestConvex<typeof schema>,
+  identity: TestIdentity,
+  content: string,
+): Promise<Id<"posts">> {
+  const outcome = await (
+    await asMember(backend, identity)
+  ).mutation(api.posts.create, { content });
 
   if (outcome._tag !== "ok") {
     throw new Error(`Expected a published Post, got ${outcome._tag}`);
@@ -51,13 +93,13 @@ async function publish(
 
 async function publishReply(
   backend: TestConvex<typeof schema>,
-  identity: { subject: string; name?: string },
+  identity: TestIdentity,
   parentPostId: Id<"posts">,
   content: string,
 ): Promise<Id<"posts">> {
-  const outcome = await backend
-    .withIdentity(identity)
-    .mutation(api.posts.createReply, { parentPostId, content });
+  const outcome = await (
+    await asMember(backend, identity)
+  ).mutation(api.posts.createReply, { parentPostId, content });
 
   if (outcome._tag !== "ok") {
     throw new Error(`Expected a published Reply, got ${outcome._tag}`);
@@ -68,13 +110,13 @@ async function publishReply(
 
 async function publishQuote(
   backend: TestConvex<typeof schema>,
-  identity: { subject: string; name?: string },
+  identity: TestIdentity,
   targetPostId: Id<"posts">,
   commentary: string,
 ): Promise<Id<"posts">> {
-  const outcome = await backend
-    .withIdentity(identity)
-    .mutation(api.posts.createQuote, { targetPostId, commentary });
+  const outcome = await (
+    await asMember(backend, identity)
+  ).mutation(api.posts.createQuote, { targetPostId, commentary });
 
   if (outcome._tag !== "ok" || outcome.kind !== "quote") {
     throw new Error(`Expected a published Quote Post, got ${outcome._tag}`);
@@ -83,20 +125,66 @@ async function publishQuote(
   return outcome.postId;
 }
 
-async function ensureMember(
-  backend: TestConvex<typeof schema>,
-  identity: { subject: string; name?: string },
-): Promise<Id<"members">> {
-  const outcome = await backend
-    .withIdentity(identity)
-    .mutation(api.members.ensureCurrent, {});
+describe("Member-only Post mutations", () => {
+  test("refuse an authenticated identity that has not registered", async () => {
+    const backend = newBackend();
+    const postId = await publish(
+      backend,
+      aliceIdentity,
+      "A registered Member's thought.",
+    );
+    const awaitingOnboarding = backend.withIdentity(benIdentity);
+    await awaitingOnboarding.mutation(api.members.ensureCurrent, {});
 
-  if (outcome._tag !== "ok") {
-    throw new Error(`Expected a projected Member, got ${outcome._tag}`);
-  }
+    const outcomes = [
+      await awaitingOnboarding.mutation(api.posts.create, {
+        content: "Not a Member yet.",
+      }),
+      await awaitingOnboarding.mutation(api.posts.createReply, {
+        parentPostId: postId,
+        content: "Not a Member yet.",
+      }),
+      await awaitingOnboarding.mutation(api.posts.createQuote, {
+        targetPostId: postId,
+        commentary: "",
+      }),
+      await awaitingOnboarding.mutation(api.posts.toggleLike, { postId }),
+      await awaitingOnboarding.mutation(api.posts.toggleRepost, { postId }),
+      await awaitingOnboarding.mutation(api.posts.remove, { postId }),
+    ];
 
-  return outcome.memberId;
-}
+    expect(outcomes).toEqual([
+      { _tag: "registration-required" },
+      { _tag: "registration-required" },
+      { _tag: "registration-required" },
+      { _tag: "registration-required" },
+      { _tag: "registration-required" },
+      { _tag: "registration-required" },
+    ]);
+  });
+
+  test("keep public reads available while onboarding is outstanding", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "Still readable.");
+    const awaitingOnboarding = backend.withIdentity(benIdentity);
+    await awaitingOnboarding.mutation(api.members.ensureCurrent, {});
+
+    const feed = await awaitingOnboarding.query(api.posts.listFeed, {});
+
+    expect(feed).toMatchObject({
+      ending: "complete",
+      posts: [
+        {
+          postId,
+          content: "Still readable.",
+          likeCount: 0,
+          viewerHasLiked: false,
+          viewerCanDelete: false,
+        },
+      ],
+    });
+  });
+});
 
 describe("Posts.create", () => {
   test("returns unauthenticated for a signed-out caller", async () => {
@@ -112,16 +200,16 @@ describe("Posts.create", () => {
   test("rejects whitespace-only content as empty", async () => {
     const backend = newBackend();
 
-    const outcome = await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.create, { content: "  \n\t " });
+    const outcome = await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.create, { content: "  \n\t " });
 
     expect(outcome).toEqual({ _tag: "invalid-content", reason: "empty" });
   });
 
   test("rejects 281 trimmed characters and accepts 280", async () => {
     const backend = newBackend();
-    const asAlice = backend.withIdentity(aliceIdentity);
+    const asAlice = await asMember(backend, aliceIdentity);
 
     const tooLong = await asAlice.mutation(api.posts.create, {
       content: "a".repeat(281),
@@ -151,9 +239,9 @@ describe("Posts.create", () => {
 
     const postId = await publish(backend, aliceIdentity, "A first thought.");
 
-    const feed = await backend
-      .withIdentity(aliceIdentity)
-      .query(api.posts.listFeed, {});
+    const feed = await (
+      await asMember(backend, aliceIdentity)
+    ).query(api.posts.listFeed, {});
     expect(feed.posts).toHaveLength(1);
     const post = feed.posts[0];
     expect(post).toMatchObject({
@@ -232,7 +320,7 @@ describe("Posts.createReply", () => {
       }),
     ).resolves.toEqual({ _tag: "unauthenticated" });
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createReply, {
         parentPostId: activePostId,
         content: "   ",
       }),
@@ -245,23 +333,23 @@ describe("Posts.createReply", () => {
     );
     await backend.run(async (ctx) => await ctx.db.delete(missingPostId));
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createReply, {
         parentPostId: missingPostId,
         content: "Missing target.",
       }),
     ).resolves.toEqual({ _tag: "target-not-found" });
 
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId: activePostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: activePostId });
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createReply, {
         parentPostId: activePostId,
         content: "Deleted target.",
       }),
     ).resolves.toEqual({ _tag: "target-deleted" });
 
-    const memberId = await ensureMember(backend, aliceIdentity);
+    const memberId = await registerMember(backend, aliceIdentity);
     const sourcePostId = await publish(
       backend,
       aliceIdentity,
@@ -276,7 +364,7 @@ describe("Posts.createReply", () => {
       }),
     );
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createReply, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createReply, {
         parentPostId: repostId,
         content: "Wrapper target.",
       }),
@@ -326,9 +414,9 @@ describe("Posts.createReply", () => {
       ],
     });
 
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.remove, { postId: directReplyId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.remove, { postId: directReplyId });
     const afterDelete = await backend.query(api.posts.getConversation, {
       postId: directReplyId,
     });
@@ -348,7 +436,7 @@ describe("Posts.createReply", () => {
 
   test("allows active Quote Posts as Reply targets", async () => {
     const backend = newBackend();
-    const memberId = await ensureMember(backend, aliceIdentity);
+    const memberId = await registerMember(backend, aliceIdentity);
     const referencedPostId = await publish(
       backend,
       aliceIdentity,
@@ -400,7 +488,7 @@ describe("Posts.createQuote", () => {
       }),
     ).resolves.toEqual({ _tag: "unauthenticated" });
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createQuote, {
         targetPostId,
         commentary: "a".repeat(281),
       }),
@@ -409,17 +497,17 @@ describe("Posts.createQuote", () => {
     const missingPostId = await publish(backend, aliceIdentity, "Missing");
     await backend.run(async (ctx) => await ctx.db.delete(missingPostId));
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createQuote, {
         targetPostId: missingPostId,
         commentary: "Cannot quote this",
       }),
     ).resolves.toEqual({ _tag: "target-not-found" });
 
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId: targetPostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: targetPostId });
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createQuote, {
         targetPostId,
         commentary: "Cannot quote a tombstone",
       }),
@@ -500,9 +588,9 @@ describe("Posts.createQuote", () => {
       aliceIdentity,
       "Ultimate source",
     );
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.toggleRepost, { postId: sourcePostId });
     const feed = await backend.query(api.posts.listFeed, {});
     const wrapper = feed.posts.find((post) => post.kind === "repost");
     expect(wrapper).toBeDefined();
@@ -524,19 +612,19 @@ describe("Posts.createQuote", () => {
       referencedPostId: sourcePostId,
     });
 
-    const blank = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.createQuote, {
-        targetPostId: wrapper.postId,
-        commentary: "  \n ",
-      });
+    const blank = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.createQuote, {
+      targetPostId: wrapper.postId,
+      commentary: "  \n ",
+    });
     expect(blank).toMatchObject({
       _tag: "ok",
       kind: "repost",
       activeRepostCount: 2,
     });
     await expect(
-      backend.withIdentity(benIdentity).mutation(api.posts.createQuote, {
+      (await asMember(backend, benIdentity)).mutation(api.posts.createQuote, {
         targetPostId: sourcePostId,
         commentary: "",
       }),
@@ -558,12 +646,12 @@ describe("Posts.createQuote", () => {
       quotePostId,
       "Reply to Quote Post",
     );
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.toggleLike, { postId: quotePostId });
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId: targetPostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.toggleLike, { postId: quotePostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: targetPostId });
 
     const feed = await backend.query(api.posts.listFeed, {});
     expect(
@@ -645,7 +733,7 @@ describe("Posts.getConversation", () => {
       backend.query(api.posts.getConversation, { postId: "not-an-id" }),
     ).resolves.toEqual({ _tag: "post-not-found" });
 
-    const memberId = await ensureMember(backend, aliceIdentity);
+    const memberId = await registerMember(backend, aliceIdentity);
     const sourcePostId = await publish(backend, aliceIdentity, "Source");
     const repostId = await backend.run(async (ctx) =>
       ctx.db.insert("posts", {
@@ -671,7 +759,7 @@ describe("Reply lifecycle across public Posts operations", () => {
       rootPostId,
       "Profile Reply",
     );
-    const benMemberId = await ensureMember(backend, benIdentity);
+    const benMemberId = await registerMember(backend, benIdentity);
 
     const feed = await backend.query(api.posts.listFeed, {});
     expect(feed.posts.map((post) => post.postId)).toEqual([rootPostId]);
@@ -695,13 +783,13 @@ describe("Reply lifecycle across public Posts operations", () => {
     });
 
     await expect(
-      backend
-        .withIdentity(aliceIdentity)
-        .mutation(api.posts.toggleLike, { postId: replyPostId }),
+      (await asMember(backend, aliceIdentity)).mutation(api.posts.toggleLike, {
+        postId: replyPostId,
+      }),
     ).resolves.toEqual({ _tag: "ok", state: "liked", likeCount: 1 });
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.remove, { postId: replyPostId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.remove, { postId: replyPostId });
 
     const deletedProfile = await backend.query(api.posts.listByMember, {
       memberId: benMemberId,
@@ -712,9 +800,9 @@ describe("Reply lifecycle across public Posts operations", () => {
       ending: "complete",
     });
     await expect(
-      backend
-        .withIdentity(aliceIdentity)
-        .mutation(api.posts.toggleLike, { postId: replyPostId }),
+      (await asMember(backend, aliceIdentity)).mutation(api.posts.toggleLike, {
+        postId: replyPostId,
+      }),
     ).resolves.toEqual({ _tag: "post-unavailable" });
 
     const conversation = await backend.query(api.posts.getConversation, {
@@ -749,9 +837,9 @@ describe("Reply lifecycle across public Posts operations", () => {
       "A surviving Reply.",
     );
 
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId: rootPostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: rootPostId });
 
     const conversation = await backend.query(api.posts.getConversation, {
       postId: rootPostId,
@@ -811,7 +899,7 @@ describe("Posts.listFeed", () => {
 
   test("selects eligible Standalone Posts before applying the Feed limit", async () => {
     const backend = newBackend();
-    const memberId = await ensureMember(backend, aliceIdentity);
+    const memberId = await registerMember(backend, aliceIdentity);
     const sourcePostId = await publish(
       backend,
       aliceIdentity,
@@ -842,7 +930,7 @@ describe("Posts.listFeed", () => {
 
   test("rejects invalid kind and relationship combinations at persistence", async () => {
     const backend = newBackend();
-    const memberId = await ensureMember(backend, aliceIdentity);
+    const memberId = await registerMember(backend, aliceIdentity);
 
     // SAFETY: This test intentionally bypasses the generated insert type to
     // prove the runtime schema rejects a Standalone Post carrying Reply fields.
@@ -865,7 +953,7 @@ describe("Posts.listFeed", () => {
 
   test("rejects Posts whose final persistence shape omits a kind", async () => {
     const backend = newBackend();
-    const memberId = await ensureMember(backend, aliceIdentity);
+    const memberId = await registerMember(backend, aliceIdentity);
 
     // SAFETY: This test intentionally bypasses the generated insert type to
     // prove the contracted runtime schema rejects the former legacy shape.
@@ -920,13 +1008,13 @@ describe("Posts.toggleLike", () => {
   test("reports a Post Tombstone as unavailable", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Ephemeral.");
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId });
 
-    const outcome = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleLike, { postId });
+    const outcome = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleLike, { postId });
 
     expect(outcome).toEqual({ _tag: "post-unavailable" });
   });
@@ -934,7 +1022,7 @@ describe("Posts.toggleLike", () => {
   test("creates and removes a Like with a consistent count", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Like me once.");
-    const asBen = backend.withIdentity(benIdentity);
+    const asBen = await asMember(backend, benIdentity);
 
     const liked = await asBen.mutation(api.posts.toggleLike, { postId });
     expect(liked).toEqual({ _tag: "ok", state: "liked", likeCount: 1 });
@@ -958,7 +1046,7 @@ describe("Posts.toggleLike", () => {
   test("never stores more than one Like per Member/Post pair", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Toggle rapidly.");
-    const asBen = backend.withIdentity(benIdentity);
+    const asBen = await asMember(backend, benIdentity);
 
     await asBen.mutation(api.posts.toggleLike, { postId });
     await asBen.mutation(api.posts.toggleLike, { postId });
@@ -977,28 +1065,28 @@ describe("Posts.toggleLike", () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Widely liked.");
 
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.toggleLike, { postId });
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleLike, { postId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.toggleLike, { postId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleLike, { postId });
 
-    const asAliceFeed = await backend
-      .withIdentity(aliceIdentity)
-      .query(api.posts.listFeed, {});
+    const asAliceFeed = await (
+      await asMember(backend, aliceIdentity)
+    ).query(api.posts.listFeed, {});
     expect(asAliceFeed.posts[0]).toMatchObject({
       likeCount: 2,
       viewerHasLiked: true,
     });
 
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleLike, { postId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleLike, { postId });
 
-    const afterBenUnliked = await backend
-      .withIdentity(aliceIdentity)
-      .query(api.posts.listFeed, {});
+    const afterBenUnliked = await (
+      await asMember(backend, aliceIdentity)
+    ).query(api.posts.listFeed, {});
     expect(afterBenUnliked.posts[0]).toMatchObject({
       likeCount: 1,
       viewerHasLiked: true,
@@ -1019,7 +1107,7 @@ describe("Posts.toggleRepost", () => {
   test("creates and reverses a self-Repost with one source count", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Share my thought.");
-    const asAlice = backend.withIdentity(aliceIdentity);
+    const asAlice = await asMember(backend, aliceIdentity);
 
     const created = await asAlice.mutation(api.posts.toggleRepost, { postId });
     expect(created).toEqual({
@@ -1072,9 +1160,9 @@ describe("Posts.toggleRepost", () => {
       aliceIdentity,
       "One identity for every action.",
     );
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.toggleRepost, { postId: sourcePostId });
     const feed = await backend.query(api.posts.listFeed, {});
     const wrapper = feed.posts.find((post) => post.kind === "repost");
     expect(wrapper).toBeDefined();
@@ -1082,23 +1170,23 @@ describe("Posts.toggleRepost", () => {
       return;
     }
 
-    const reposted = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleRepost, { postId: wrapper.postId });
+    const reposted = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleRepost, { postId: wrapper.postId });
     expect(reposted).toEqual({
       _tag: "ok",
       state: "reposted",
       activeRepostCount: 2,
     });
 
-    const liked = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleLike, { postId: wrapper.postId });
+    const liked = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleLike, { postId: wrapper.postId });
     expect(liked).toEqual({ _tag: "ok", state: "liked", likeCount: 1 });
 
-    const asBen = await backend
-      .withIdentity(benIdentity)
-      .query(api.posts.listFeed, {});
+    const asBen = await (
+      await asMember(backend, benIdentity)
+    ).query(api.posts.listFeed, {});
     const source = asBen.posts.find((post) => post.postId === sourcePostId);
     expect(source).toMatchObject({
       kind: "standalone",
@@ -1130,13 +1218,13 @@ describe("Posts.toggleRepost", () => {
       aliceIdentity,
       "Gone before sharing.",
     );
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId });
 
-    const outcome = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleRepost, { postId });
+    const outcome = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleRepost, { postId });
 
     expect(outcome).toEqual({ _tag: "post-unavailable" });
   });
@@ -1144,7 +1232,7 @@ describe("Posts.toggleRepost", () => {
   test("serializes concurrent toggles without duplicate wrappers or counts", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Share exactly once.");
-    const asBen = backend.withIdentity(benIdentity);
+    const asBen = await asMember(backend, benIdentity);
 
     await Promise.all([
       asBen.mutation(api.posts.toggleRepost, { postId }),
@@ -1177,10 +1265,10 @@ describe("Posts.toggleRepost", () => {
       aliceIdentity,
       "The source keeps its author.",
     );
-    const benMemberId = await ensureMember(backend, benIdentity);
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    const benMemberId = await registerMember(backend, benIdentity);
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleRepost, { postId: sourcePostId });
 
     const feed = await backend.query(api.posts.listFeed, {});
     const repost = feed.posts.find((post) => post.kind === "repost");
@@ -1232,9 +1320,9 @@ describe("Posts.remove", () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Alice's Post.");
 
-    const outcome = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.remove, { postId });
+    const outcome = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.remove, { postId });
 
     expect(outcome).toEqual({ _tag: "forbidden" });
     const feed = await backend.query(api.posts.listFeed, {});
@@ -1244,7 +1332,7 @@ describe("Posts.remove", () => {
   test("reports a missing Post", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "Gone soon.");
-    const asAlice = backend.withIdentity(aliceIdentity);
+    const asAlice = await asMember(backend, aliceIdentity);
 
     await asAlice.mutation(api.posts.remove, { postId });
     const outcome = await asAlice.mutation(api.posts.remove, { postId });
@@ -1257,19 +1345,19 @@ describe("Posts.remove", () => {
     const removedId = await publish(backend, aliceIdentity, "Delete me.");
     const keptId = await publish(backend, benIdentity, "Keep me.");
 
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.toggleLike, { postId: removedId });
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleLike, { postId: removedId });
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.toggleLike, { postId: keptId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.toggleLike, { postId: removedId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleLike, { postId: removedId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.toggleLike, { postId: keptId });
 
-    const outcome = await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId: removedId });
+    const outcome = await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: removedId });
     expect(outcome).toEqual({ _tag: "ok" });
 
     const feed = await backend.query(api.posts.listFeed, {});
@@ -1289,16 +1377,16 @@ describe("Posts.remove", () => {
       aliceIdentity,
       "Delete the source everywhere.",
     );
-    await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleRepost, { postId: sourcePostId });
 
-    const outcome = await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId: sourcePostId });
+    const outcome = await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: sourcePostId });
     expect(outcome).toEqual({ _tag: "ok" });
 
     const feed = await backend.query(api.posts.listFeed, {});
@@ -1321,9 +1409,9 @@ describe("Posts.remove", () => {
       aliceIdentity,
       "Ben controls Ben's distribution.",
     );
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleRepost, { postId: sourcePostId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleRepost, { postId: sourcePostId });
     const feed = await backend.query(api.posts.listFeed, {});
     const wrapper = feed.posts.find((post) => post.kind === "repost");
     expect(wrapper).toBeDefined();
@@ -1331,14 +1419,14 @@ describe("Posts.remove", () => {
       return;
     }
 
-    const forbidden = await backend
-      .withIdentity(aliceIdentity)
-      .mutation(api.posts.remove, { postId: wrapper.postId });
+    const forbidden = await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: wrapper.postId });
     expect(forbidden).toEqual({ _tag: "forbidden" });
 
-    const removed = await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.remove, { postId: wrapper.postId });
+    const removed = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.remove, { postId: wrapper.postId });
     expect(removed).toEqual({ _tag: "ok" });
     const restoredFeed = await backend.query(api.posts.listFeed, {});
     expect(restoredFeed.posts).toEqual([
@@ -1357,7 +1445,7 @@ describe("Posts.remove", () => {
       aliceIdentity,
       "A parent whose count must stay truthful.",
     );
-    const asBen = backend.withIdentity(benIdentity);
+    const asBen = await asMember(backend, benIdentity);
     const created = await asBen.mutation(api.posts.createReply, {
       parentPostId: rootPostId,
       content: "A direct Reply.",
@@ -1424,9 +1512,9 @@ describe("Posts.listByMember", () => {
   test("includes complete display models with viewer Like state", async () => {
     const backend = newBackend();
     const postId = await publish(backend, aliceIdentity, "On my Profile.");
-    await backend
-      .withIdentity(benIdentity)
-      .mutation(api.posts.toggleLike, { postId });
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleLike, { postId });
 
     const feed = await backend.query(api.posts.listFeed, {});
     const aliceMemberId = feed.posts[0]?.author.memberId;
@@ -1435,9 +1523,9 @@ describe("Posts.listByMember", () => {
       return;
     }
 
-    const asBen = await backend
-      .withIdentity(benIdentity)
-      .query(api.posts.listByMember, { memberId: aliceMemberId });
+    const asBen = await (
+      await asMember(backend, benIdentity)
+    ).query(api.posts.listByMember, { memberId: aliceMemberId });
 
     expect(asBen._tag).toBe("ok");
     if (asBen._tag !== "ok") {

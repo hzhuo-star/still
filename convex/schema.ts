@@ -5,6 +5,10 @@ const activeAuthoredPostValidator = v.object({
   state: v.literal("active"),
   authorId: v.id("members"),
   content: v.string(),
+  /** Optimistic-concurrency token; absent only on pre-expansion records. */
+  revision: v.optional(v.number()),
+  /** Last successful edit time; absent until the first edit. */
+  editedAt: v.optional(v.number()),
   likeCount: v.number(),
   activeReplyCount: v.number(),
   activeRepostCount: v.number(),
@@ -79,14 +83,51 @@ const schema = defineSchema({
     displayName: v.string(),
     /** Avatar URL projected from Clerk, when one exists. */
     avatarUrl: v.optional(v.string()),
-  }).index("by_externalId", ["externalId"]),
+    /** Registration lifecycle; absent only on pre-expansion records. */
+    registrationState: v.optional(
+      v.union(v.literal("pending"), v.literal("registered")),
+    ),
+    /** Public Handle preserving the Member's chosen lowercase spelling. */
+    handle: v.optional(v.string()),
+    /** Case-insensitive Handle key used for authoritative ownership. */
+    normalizedHandle: v.optional(v.string()),
+    /** Optional Still-owned public biography. */
+    biography: v.optional(v.string()),
+    /** Transactionally maintained public follower count. */
+    followerCount: v.optional(v.number()),
+    /** Transactionally maintained public following count. */
+    followingCount: v.optional(v.number()),
+    /** Normalized Handle and display-name projection for full-text Search. */
+    searchText: v.optional(v.string()),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_normalizedHandle", ["normalizedHandle"])
+    .searchIndex("search_searchText", {
+      searchField: "searchText",
+      staged: true,
+    }),
 
   posts: defineTable(postRecordValidator)
     .index("by_authorId", ["authorId"])
     .index("by_state_and_kind", ["state", "kind"])
     .index("by_authorId_and_state_and_kind", ["authorId", "state", "kind"])
     .index("by_conversationRootId", ["conversationRootId"])
-    .index("by_sourcePostId_and_authorId", ["sourcePostId", "authorId"]),
+    .index("by_sourcePostId_and_authorId", ["sourcePostId", "authorId"])
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["state", "kind"],
+      staged: true,
+    }),
+
+  follows: defineTable({
+    /** The Member choosing to receive another Member's Posts. */
+    followerId: v.id("members"),
+    /** The Member whose eligible Posts enter the follower's Following Feed. */
+    followedId: v.id("members"),
+  })
+    .index("by_followerId", ["followerId"])
+    .index("by_followedId", ["followedId"])
+    .index("by_followerId_and_followedId", ["followerId", "followedId"]),
 
   likes: defineTable({
     /** The Member who Liked the Post. */

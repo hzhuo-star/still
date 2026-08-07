@@ -7,6 +7,7 @@ import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { AuthoredPostView, PostView } from "../../convex/contract/post";
 import { casesHandled } from "../../convex/lib/result";
+import { useOnboardingNavigation } from "@/members/registration";
 
 type RepostButtonProps = {
   /** The ultimate source whose Repost state this control toggles. */
@@ -69,6 +70,7 @@ function updatePosts(
  */
 export function RepostButton({ post }: RepostButtonProps) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const onboarding = useOnboardingNavigation();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const toggleRepost = useMutation(api.posts.toggleRepost).withOptimisticUpdate(
@@ -154,6 +156,9 @@ export function RepostButton({ post }: RepostButtonProps) {
           return;
         case "unauthenticated":
           setFeedback("Your session ended. Sign in again to Repost.");
+          return;
+        case "registration-required":
+          onboarding.start();
           return;
         case "post-not-found":
           setFeedback("This Post was deleted.");

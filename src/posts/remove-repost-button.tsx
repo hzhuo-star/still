@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { casesHandled } from "../../convex/lib/result";
+import { useOnboardingNavigation } from "@/members/registration";
 
 type RemoveRepostButtonProps = {
   /** The current Member's Repost wrapper to remove. */
@@ -15,6 +16,7 @@ type RemoveRepostButtonProps = {
 /** Removes the current Member's Repost wrapper with pending and retry states. */
 export function RemoveRepostButton({ repostId }: RemoveRepostButtonProps) {
   const removePost = useMutation(api.posts.remove);
+  const onboarding = useOnboardingNavigation();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -35,6 +37,9 @@ export function RemoveRepostButton({ repostId }: RemoveRepostButtonProps) {
           setFeedback(
             "Your session ended. Sign in again to remove this Repost.",
           );
+          return;
+        case "registration-required":
+          onboarding.start();
           return;
         default:
           casesHandled(outcome);
