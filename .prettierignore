@@ -1,6 +1,7 @@
 .agents/
 .claude/
 .next/
+.repo/
 DESIGN-SYSTEM.md
 convex/_generated/
 coverage/

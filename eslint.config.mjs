@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     ".agents/**",
     ".claude/**",
     "convex/_generated/**",
+    // Vendored read-only reference source for agents; not project code.
+    ".repo/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

@@ -1,0 +1,11 @@
+{
+  // .repo/ holds vendored read-only reference source for agent context;
+  // keep it out of search, file watching, and auto-import suggestions.
+  "search.exclude": {
+    ".repo/**": true
+  },
+  "files.watcherExclude": {
+    ".repo/**": true
+  },
+  "typescript.preferences.autoImportFileExcludePatterns": [".repo/**"]
+}
