@@ -67,6 +67,11 @@ export async function searchPosts(
  * full-text matches — so an immediate Handle release and reuse can never
  * return two owners for one normalized Handle.
  *
+ * When the bounded candidate page is full, `truncated` is reported even if a
+ * pending Member among the candidates rendered nothing: the 21-candidate
+ * bound cannot see past itself, and claiming completeness there could be
+ * false, while "showing the first matches" never is. Deliberate.
+ *
  * @param ctx - The Convex query context.
  * @param rawQuery - The raw, untrusted Search box text.
  * @returns The bounded matches, or the explicit empty-query initial state.

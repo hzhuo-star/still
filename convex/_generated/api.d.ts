@@ -14,6 +14,7 @@ import type * as contract_post from "../contract/post.js";
 import type * as contract_search from "../contract/search.js";
 import type * as lib_memberProfile from "../lib/memberProfile.js";
 import type * as lib_postContent from "../lib/postContent.js";
+import type * as lib_postOrder from "../lib/postOrder.js";
 import type * as lib_result from "../lib/result.js";
 import type * as members from "../members.js";
 import type * as model_follows from "../model/follows.js";
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   "contract/search": typeof contract_search;
   "lib/memberProfile": typeof lib_memberProfile;
   "lib/postContent": typeof lib_postContent;
+  "lib/postOrder": typeof lib_postOrder;
   "lib/result": typeof lib_result;
   members: typeof members;
   "model/follows": typeof model_follows;

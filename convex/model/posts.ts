@@ -20,6 +20,7 @@ import {
   type ToggleLikeOutcome,
   type ToggleRepostOutcome,
 } from "../contract/post";
+import { byNewestFirst } from "../lib/postOrder";
 import { shouldNeverHappen } from "../lib/result";
 import { followedMemberIds } from "./follows";
 import {
@@ -257,13 +258,7 @@ function mergeNewest(
 ): ReadonlyArray<Doc<"posts">> {
   return postPages
     .flat()
-    .sort(
-      // Equal publication times fall back to the id so every merge of the
-      // same ranges renders one deterministic order.
-      (left, right) =>
-        right._creationTime - left._creationTime ||
-        (left._id < right._id ? 1 : -1),
-    )
+    .sort(byNewestFirst)
     .slice(0, FEED_LIMIT + 1);
 }
 

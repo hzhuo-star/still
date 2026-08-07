@@ -213,9 +213,10 @@ describe("Search.posts", () => {
     }
     expect(bounded.posts).toHaveLength(SEARCH_LIMIT);
     const likedView = bounded.posts.find((post) => post.postId === likedId);
-    if (likedView !== undefined) {
-      expect(likedView).toMatchObject({ viewerHasLiked: true });
+    if (likedView === undefined) {
+      throw new Error("Expected the Liked Post inside the bounded results");
     }
+    expect(likedView).toMatchObject({ viewerHasLiked: true });
 
     const complete = await backend.query(api.search.posts, {
       query: "thought 3",

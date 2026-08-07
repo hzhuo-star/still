@@ -4,7 +4,8 @@ import { describe, expect, test } from "vitest";
 
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { FEED_LIMIT } from "../contract/post";
+import { FEED_LIMIT, type PostView } from "../contract/post";
+import { byNewestFirst } from "../lib/postOrder";
 import schema from "../schema";
 
 const modules = import.meta.glob("../**/*.ts");
@@ -92,9 +93,8 @@ async function feedFor(
   backend: TestConvex<typeof schema>,
   identity: TestIdentity,
 ): Promise<{
-  readonly posts: ReadonlyArray<{ readonly postId: Id<"posts"> }>;
+  readonly posts: ReadonlyArray<PostView>;
   readonly ending: "complete" | "truncated";
-  readonly views: ReadonlyArray<Record<string, unknown>>;
 }> {
   const outcome = await backend
     .withIdentity(identity)
@@ -104,7 +104,7 @@ async function feedFor(
     throw new Error(`Expected a Following Feed, got ${outcome._tag}`);
   }
 
-  return { posts: outcome.posts, ending: outcome.ending, views: outcome.posts };
+  return { posts: outcome.posts, ending: outcome.ending };
 }
 
 describe("Posts.listFollowingFeed", () => {
@@ -283,6 +283,67 @@ describe("Posts.listFollowingFeed", () => {
       viewerCanEdit: false,
       viewerCanDelete: false,
     });
+  });
+
+  test("reacts to Repost removal and Quote-source availability changes", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity);
+    const benId = await register(backend, benIdentity);
+    await register(backend, claraIdentity);
+    await follow(backend, aliceIdentity, benId);
+
+    const claraPostId = await publish(backend, claraIdentity, "Clara's words");
+    await repost(backend, benIdentity, claraPostId);
+    expect((await feedFor(backend, aliceIdentity)).posts).toHaveLength(1);
+
+    // Removing the Repost removes its Feed entry without touching the source.
+    const unreposted = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.toggleRepost, { postId: claraPostId });
+    expect(unreposted).toMatchObject({ _tag: "ok", state: "not-reposted" });
+    expect((await feedFor(backend, aliceIdentity)).posts).toEqual([]);
+
+    const quoteOutcome = await backend
+      .withIdentity(benIdentity)
+      .mutation(api.posts.createQuote, {
+        targetPostId: claraPostId,
+        commentary: "Ben quotes Clara",
+      });
+    if (quoteOutcome._tag !== "ok") {
+      throw new Error(`Expected a Quote, got ${quoteOutcome._tag}`);
+    }
+    expect((await feedFor(backend, aliceIdentity)).posts[0]).toMatchObject({
+      kind: "quote",
+      reference: { _tag: "available", post: { postId: claraPostId } },
+    });
+
+    // Deleting the source keeps the Quote in the Feed with an unavailable
+    // reference instead of removing or breaking the entry.
+    const removed = await backend
+      .withIdentity(claraIdentity)
+      .mutation(api.posts.remove, { postId: claraPostId });
+    expect(removed).toEqual({ _tag: "ok" });
+    expect((await feedFor(backend, aliceIdentity)).posts[0]).toMatchObject({
+      kind: "quote",
+      postId: quoteOutcome.postId,
+      reference: { _tag: "unavailable" },
+    });
+  });
+
+  test("orders equal publication times deterministically", () => {
+    // convex-test always assigns strictly increasing creation times, so the
+    // equal-time tie-break is proven on the pure comparator the merge uses.
+    const posts = [
+      { _creationTime: 5, _id: "b" },
+      { _creationTime: 5, _id: "a" },
+      { _creationTime: 7, _id: "c" },
+    ];
+
+    const sortedOneWay = [...posts].sort(byNewestFirst);
+    const sortedOtherWay = [...posts].reverse().sort(byNewestFirst);
+
+    expect(sortedOneWay).toEqual(sortedOtherWay);
+    expect(sortedOneWay.map((post) => post._id)).toEqual(["c", "b", "a"]);
   });
 
   test("merges authors newest-first and bounds 51 results to 50", async () => {
