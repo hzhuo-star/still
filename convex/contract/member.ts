@@ -184,6 +184,47 @@ export const registrationRequiredOutcomeValidator = v.object({
   _tag: v.literal("registration-required"),
 });
 
+/**
+ * The Still-owned Profile values submitted to a Profile update.
+ *
+ * Registration and editing accept the same submission, because they apply the
+ * same parsers to the same three Still-owned fields.
+ */
+export const updateCurrentProfileArgsValidator =
+  registerCurrentMemberArgsValidator;
+
+/** The Still-owned Profile values submitted to a Profile update. */
+export type UpdateCurrentProfileArgs = Readonly<
+  Infer<typeof updateCurrentProfileArgsValidator>
+>;
+
+/**
+ * The outcome of updating the viewer's own Still-owned Profile.
+ *
+ * There is no wrong-Member outcome: the mutation resolves its subject from the
+ * authenticated identity and accepts no Member id, so one Member cannot name
+ * another's Profile.
+ */
+export const updateCurrentProfileOutcomeValidator = v.union(
+  v.object({
+    _tag: v.literal("ok"),
+    profile: registeredMemberProfileValidator,
+  }),
+  v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
+  invalidMemberProfileOutcomeValidator,
+  v.object({
+    _tag: v.literal("handle-unavailable"),
+    /** The Handle another Member already owns. */
+    handle: v.string(),
+  }),
+);
+
+/** The outcome of updating the viewer's own Still-owned Profile. */
+export type UpdateCurrentProfileOutcome = Readonly<
+  Infer<typeof updateCurrentProfileOutcomeValidator>
+>;
+
 /** The outcome of reading a Member's public Profile. */
 export const getMemberProfileOutcomeValidator = v.union(
   v.object({ _tag: v.literal("ok"), profile: memberProfileValidator }),

@@ -11,6 +11,7 @@ import type {
   MemberRegistrationDefaults,
   RegisterCurrentMemberOutcome,
   RegisteredMemberProfile,
+  UpdateCurrentProfileOutcome,
 } from "../contract/member";
 import * as MemberProfile from "../lib/memberProfile";
 import { shouldNeverHappen } from "../lib/result";
@@ -171,6 +172,22 @@ export type CurrentMemberRequirement =
 export async function requireCurrent(
   ctx: QueryCtx,
 ): Promise<CurrentMemberRequirement> {
+  const current = await currentRegisteredMember(ctx);
+
+  return current._tag === "ok"
+    ? { _tag: "ok", memberId: current.member._id }
+    : current;
+}
+
+/** The acting Member's own record, or why a Member-only operation cannot run. */
+type CurrentRegisteredMember =
+  | { readonly _tag: "ok"; readonly member: RegisteredMemberRecord }
+  | { readonly _tag: "unauthenticated" }
+  | { readonly _tag: "registration-required" };
+
+async function currentRegisteredMember(
+  ctx: QueryCtx,
+): Promise<CurrentRegisteredMember> {
   const identity = await ctx.auth.getUserIdentity();
 
   if (identity === null) {
@@ -178,16 +195,11 @@ export async function requireCurrent(
   }
 
   const member = await findByExternalId(ctx, identity.tokenIdentifier);
-
-  if (member === null) {
-    return { _tag: "registration-required" };
-  }
-
-  const registered = asRegistered(member);
+  const registered = member === null ? null : asRegistered(member);
 
   return registered === null
     ? { _tag: "registration-required" }
-    : { _tag: "ok", memberId: registered._id };
+    : { _tag: "ok", member: registered };
 }
 
 /**
@@ -297,6 +309,33 @@ export async function getCurrent(
 }
 
 /**
+ * The Still-owned Profile fields one parsed submission writes.
+ *
+ * An absent biography is omitted rather than stored as an empty value, so a
+ * Profile carries a biography only when its Member wrote one.
+ */
+function stillOwnedProfileFields(draft: MemberProfile.MemberProfileDraft): {
+  readonly handle: string;
+  readonly normalizedHandle: string;
+  readonly displayName: string;
+  readonly biography?: string;
+  readonly searchText: string;
+} {
+  return {
+    handle: draft.handle,
+    normalizedHandle: draft.normalizedHandle,
+    displayName: draft.displayName,
+    ...(draft.biography._tag === "absent"
+      ? {}
+      : { biography: draft.biography.text }),
+    searchText: MemberProfile.searchProjection([
+      draft.handle,
+      draft.displayName,
+    ]),
+  };
+}
+
+/**
  * Complete Member Registration for the authenticated identity.
  *
  * Parsing happens before any write, so a rejected submission leaves no Member
@@ -343,17 +382,8 @@ export async function registerCurrent(
 
   const registration = {
     registrationState: "registered" as const,
-    handle: draft.value.handle,
-    normalizedHandle: draft.value.normalizedHandle,
-    displayName: draft.value.displayName,
-    ...(draft.value.biography._tag === "absent"
-      ? {}
-      : { biography: draft.value.biography.text }),
+    ...stillOwnedProfileFields(draft.value),
     ...followCounts(existing),
-    searchText: MemberProfile.searchProjection([
-      draft.value.handle,
-      draft.value.displayName,
-    ]),
   };
 
   const identityFields = projectIdentity(identity);
@@ -378,10 +408,72 @@ export async function registerCurrent(
   return await readRegistered(ctx, existing._id);
 }
 
+/**
+ * Update the Still-owned portion of the acting Member's own Profile.
+ *
+ * The subject is the authenticated identity's own Member, so no caller can name
+ * another Member's Profile. Handle ownership moves inside the same transaction
+ * as the write: the row that holds the normalized Handle is the row being
+ * updated, so the previous Handle is released the moment the new one is taken,
+ * with no alias, redirect, or reservation left behind. Keeping the same
+ * normalized Handle skips the ownership check entirely, so a Member editing
+ * only their display name or biography cannot collide with themselves.
+ *
+ * @param ctx - The Convex mutation context.
+ * @param input - The untrusted Still-owned Profile values submitted.
+ * @returns The updated Profile, or a precise expected failure.
+ */
+export async function updateCurrent(
+  ctx: MutationCtx,
+  input: MemberProfile.MemberProfileInput,
+): Promise<UpdateCurrentProfileOutcome> {
+  const current = await currentRegisteredMember(ctx);
+
+  if (current._tag !== "ok") {
+    return current;
+  }
+
+  const draft = MemberProfile.parse(input);
+
+  if (draft._tag === "err") {
+    return {
+      _tag: "invalid-profile",
+      field: draft.error.field,
+      reason: draft.error.reason,
+    };
+  }
+
+  if (draft.value.normalizedHandle !== current.member.normalizedHandle) {
+    const owner = await findByNormalizedHandle(
+      ctx,
+      draft.value.normalizedHandle,
+    );
+
+    if (owner !== null) {
+      return { _tag: "handle-unavailable", handle: draft.value.handle };
+    }
+  }
+
+  await ctx.db.patch("members", current.member._id, {
+    ...stillOwnedProfileFields(draft.value),
+    // A removed biography clears the stored field; patching an omitted field
+    // would keep the previous text instead.
+    ...(draft.value.biography._tag === "absent"
+      ? { biography: undefined }
+      : {}),
+  });
+
+  return await readRegistered(ctx, current.member._id);
+}
+
+/** Re-read a Member the current transaction has just written as registered. */
 async function readRegistered(
   ctx: MutationCtx,
   memberId: Id<"members">,
-): Promise<RegisterCurrentMemberOutcome> {
+): Promise<{
+  readonly _tag: "ok";
+  readonly profile: RegisteredMemberProfile;
+}> {
   const member = await ctx.db.get("members", memberId);
   const registered = member === null ? null : asRegistered(member);
 

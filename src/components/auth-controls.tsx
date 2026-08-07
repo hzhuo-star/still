@@ -23,6 +23,17 @@ function MemberStatus() {
     );
   }
 
+  if (registration._tag === "ok") {
+    return (
+      <Link
+        className="hidden min-h-touch items-center text-meta text-muted no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-sage focus-visible:ring-offset-2 focus-visible:ring-offset-canvas feed:inline-flex"
+        href="/settings/profile"
+      >
+        {`@${registration.profile.handle}`}
+      </Link>
+    );
+  }
+
   return (
     <span className="hidden text-meta text-muted feed:inline">
       Preview member

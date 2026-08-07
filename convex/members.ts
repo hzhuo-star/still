@@ -7,6 +7,8 @@ import {
   getMemberProfileOutcomeValidator,
   registerCurrentMemberArgsValidator,
   registerCurrentMemberOutcomeValidator,
+  updateCurrentProfileArgsValidator,
+  updateCurrentProfileOutcomeValidator,
 } from "./contract/member";
 import * as Members from "./model/members";
 
@@ -32,6 +34,13 @@ export const registerCurrent = mutation({
   args: registerCurrentMemberArgsValidator.fields,
   returns: registerCurrentMemberOutcomeValidator,
   handler: async (ctx, args) => await Members.registerCurrent(ctx, args),
+});
+
+/** Update the Still-owned portion of the acting Member's own Profile. */
+export const updateCurrent = mutation({
+  args: updateCurrentProfileArgsValidator.fields,
+  returns: updateCurrentProfileOutcomeValidator,
+  handler: async (ctx, args) => await Members.updateCurrent(ctx, args),
 });
 
 /** Read a Member's public Profile without authentication. */

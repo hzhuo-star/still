@@ -3,6 +3,7 @@ import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 
 const modules = import.meta.glob("../**/*.ts");
@@ -317,6 +318,305 @@ describe("Members registration over existing identities", () => {
       field: "display-name",
       reason: "too-long",
     });
+  });
+});
+
+describe("Members.updateCurrent", () => {
+  async function register(
+    backend: TestConvex<typeof schema>,
+    identity: { readonly subject: string; readonly name?: string },
+    handle: string,
+  ): Promise<Id<"members">> {
+    const outcome = await backend
+      .withIdentity(identity)
+      .mutation(api.members.registerCurrent, {
+        handle,
+        displayName: identity.name ?? "Member",
+        biography: "",
+      });
+
+    if (outcome._tag !== "ok") {
+      throw new Error(`Expected a registered Member, got ${outcome._tag}`);
+    }
+
+    return outcome.profile.memberId;
+  }
+
+  test("refuses signed-out and unregistered callers without writing", async () => {
+    const backend = newBackend();
+    const submission = {
+      handle: "alice_reader",
+      displayName: "Alice",
+      biography: "",
+    };
+
+    await expect(
+      backend.mutation(api.members.updateCurrent, submission),
+    ).resolves.toEqual({ _tag: "unauthenticated" });
+
+    const asAlice = backend.withIdentity(aliceIdentity);
+    await asAlice.mutation(api.members.ensureCurrent, {});
+    await expect(
+      asAlice.mutation(api.members.updateCurrent, submission),
+    ).resolves.toEqual({ _tag: "registration-required" });
+
+    await expect(asAlice.query(api.members.getCurrent, {})).resolves.toEqual({
+      _tag: "registration-required",
+      defaults: {
+        displayName: "Alice Reader",
+        avatarUrl: "https://img.clerk.com/alice.png",
+      },
+    });
+  });
+
+  test("updates every Still-owned field and rehydrates the public Profile", async () => {
+    const backend = newBackend();
+    const memberId = await register(backend, aliceIdentity, "alice");
+    const asAlice = backend.withIdentity(aliceIdentity);
+
+    const updated = await asAlice.mutation(api.members.updateCurrent, {
+      handle: "quiet_reader",
+      displayName: "  Alice Reads  ",
+      biography: "  Keeps notes.  ",
+    });
+
+    expect(updated).toEqual({
+      _tag: "ok",
+      profile: {
+        registrationState: "registered",
+        memberId,
+        handle: "quiet_reader",
+        displayName: "Alice Reads",
+        biography: "Keeps notes.",
+        avatarUrl: "https://img.clerk.com/alice.png",
+        followerCount: 0,
+        followingCount: 0,
+      },
+    });
+    await expect(
+      backend.query(api.members.getProfile, { memberId }),
+    ).resolves.toEqual(updated);
+  });
+
+  test("clears a biography the Member removes", async () => {
+    const backend = newBackend();
+    const memberId = await register(backend, aliceIdentity, "alice");
+    const asAlice = backend.withIdentity(aliceIdentity);
+
+    await asAlice.mutation(api.members.updateCurrent, {
+      handle: "alice",
+      displayName: "Alice",
+      biography: "Temporary.",
+    });
+    const cleared = await asAlice.mutation(api.members.updateCurrent, {
+      handle: "alice",
+      displayName: "Alice",
+      biography: "   ",
+    });
+
+    expect(cleared).toMatchObject({ _tag: "ok" });
+    await expect(
+      backend.query(api.members.getProfile, { memberId }),
+    ).resolves.toEqual({
+      _tag: "ok",
+      profile: {
+        registrationState: "registered",
+        memberId,
+        handle: "alice",
+        displayName: "Alice",
+        avatarUrl: "https://img.clerk.com/alice.png",
+        followerCount: 0,
+        followingCount: 0,
+      },
+    });
+  });
+
+  test("keeps an unchanged Handle from colliding with itself", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity, "alice");
+
+    await expect(
+      backend.withIdentity(aliceIdentity).mutation(api.members.updateCurrent, {
+        handle: "Alice",
+        displayName: "Alice Again",
+        biography: "Same Handle, new name.",
+      }),
+    ).resolves.toMatchObject({
+      _tag: "ok",
+      profile: { handle: "alice", displayName: "Alice Again" },
+    });
+  });
+
+  test("refuses a Handle another Member owns", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity, "alice");
+    await register(backend, benIdentity, "ben_quiet");
+
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.members.updateCurrent, {
+        handle: "ALICE",
+        displayName: "Ben",
+        biography: "",
+      }),
+    ).resolves.toEqual({ _tag: "handle-unavailable", handle: "alice" });
+    await expect(
+      backend.withIdentity(benIdentity).query(api.members.getCurrent, {}),
+    ).resolves.toMatchObject({ _tag: "ok", profile: { handle: "ben_quiet" } });
+  });
+
+  test("releases the previous Handle for immediate reuse", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity, "quiet_reader");
+    await register(backend, benIdentity, "ben_quiet");
+
+    await expect(
+      backend.withIdentity(aliceIdentity).mutation(api.members.updateCurrent, {
+        handle: "alice_reads",
+        displayName: "Alice",
+        biography: "",
+      }),
+    ).resolves.toMatchObject({ _tag: "ok" });
+    await expect(
+      backend.withIdentity(benIdentity).mutation(api.members.updateCurrent, {
+        handle: "quiet_reader",
+        displayName: "Ben",
+        biography: "",
+      }),
+    ).resolves.toMatchObject({
+      _tag: "ok",
+      profile: { handle: "quiet_reader" },
+    });
+
+    expect(
+      await backend.run(async (ctx) =>
+        (
+          await ctx.db.query("members").withIndex("by_externalId").collect()
+        ).map((member) => member.normalizedHandle),
+      ),
+    ).toEqual(expect.arrayContaining(["alice_reads", "quiet_reader"]));
+  });
+
+  test("settles concurrent claims on one released Handle", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity, "alice");
+    await register(backend, benIdentity, "ben_quiet");
+
+    const [alice, ben] = await Promise.all([
+      backend.withIdentity(aliceIdentity).mutation(api.members.updateCurrent, {
+        handle: "quiet_reader",
+        displayName: "Alice",
+        biography: "",
+      }),
+      backend.withIdentity(benIdentity).mutation(api.members.updateCurrent, {
+        handle: "quiet_reader",
+        displayName: "Ben",
+        biography: "",
+      }),
+    ]);
+
+    expect([alice._tag, ben._tag].sort()).toEqual(["handle-unavailable", "ok"]);
+  });
+
+  test("applies the Registration parsers to every field", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity, "alice");
+    const asAlice = backend.withIdentity(aliceIdentity);
+
+    await expect(
+      asAlice.mutation(api.members.updateCurrent, {
+        handle: "_bad",
+        displayName: "Alice",
+        biography: "",
+      }),
+    ).resolves.toEqual({
+      _tag: "invalid-profile",
+      field: "handle",
+      reason: "invalid-format",
+    });
+    await expect(
+      asAlice.mutation(api.members.updateCurrent, {
+        handle: "alice",
+        displayName: "  ",
+        biography: "",
+      }),
+    ).resolves.toEqual({
+      _tag: "invalid-profile",
+      field: "display-name",
+      reason: "empty",
+    });
+    await expect(
+      asAlice.mutation(api.members.updateCurrent, {
+        handle: "alice",
+        displayName: "Alice",
+        biography: "b".repeat(161),
+      }),
+    ).resolves.toEqual({
+      _tag: "invalid-profile",
+      field: "biography",
+      reason: "too-long",
+    });
+    await expect(
+      asAlice.query(api.members.getCurrent, {}),
+    ).resolves.toMatchObject({
+      _tag: "ok",
+      profile: { handle: "alice", displayName: "Alice Reader" },
+    });
+  });
+
+  test("keeps Still-owned fields through a later Clerk refresh", async () => {
+    const backend = newBackend();
+    const memberId = await register(backend, aliceIdentity, "alice");
+
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.members.updateCurrent, {
+        handle: "alice_reads",
+        displayName: "Alice Reads",
+        biography: "Still owns this.",
+      });
+    await backend
+      .withIdentity({
+        subject: "user_alice",
+        name: "Clerk Renamed",
+        pictureUrl: "https://img.clerk.com/alice-3.png",
+      })
+      .mutation(api.members.ensureCurrent, {});
+
+    await expect(
+      backend.query(api.members.getProfile, { memberId }),
+    ).resolves.toEqual({
+      _tag: "ok",
+      profile: {
+        registrationState: "registered",
+        memberId,
+        handle: "alice_reads",
+        displayName: "Alice Reads",
+        biography: "Still owns this.",
+        avatarUrl: "https://img.clerk.com/alice-3.png",
+        followerCount: 0,
+        followingCount: 0,
+      },
+    });
+  });
+
+  test("keeps rendered Post author references on the current Profile", async () => {
+    const backend = newBackend();
+    await register(backend, aliceIdentity, "alice");
+    const published = await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.posts.create, { content: "A quiet thought." });
+    expect(published._tag).toBe("ok");
+
+    await backend
+      .withIdentity(aliceIdentity)
+      .mutation(api.members.updateCurrent, {
+        handle: "alice_reads",
+        displayName: "Alice Reads",
+        biography: "",
+      });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(feed.posts[0]?.author.displayName).toBe("Alice Reads");
   });
 });
 
