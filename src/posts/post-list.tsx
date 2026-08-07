@@ -3,6 +3,7 @@
 import type { ListEnding, PostView } from "../../convex/contract/post";
 import { ListEndingNotice } from "@/posts/list-ending";
 import { PostCard } from "@/posts/post-card";
+import { EditComposerProvider } from "@/posts/edit-action";
 import { QuoteComposerProvider } from "@/posts/quote-action";
 
 type PostListProps = {
@@ -19,14 +20,16 @@ type PostListProps = {
 export function PostList({ posts, ending }: PostListProps) {
   return (
     <QuoteComposerProvider>
-      <ul className="m-0 list-none p-0">
-        {posts.map((post) => (
-          <li key={post.postId}>
-            <PostCard post={post} />
-          </li>
-        ))}
-      </ul>
-      <ListEndingNotice ending={ending} />
+      <EditComposerProvider>
+        <ul className="m-0 list-none p-0">
+          {posts.map((post) => (
+            <li key={post.postId}>
+              <PostCard post={post} />
+            </li>
+          ))}
+        </ul>
+        <ListEndingNotice ending={ending} />
+      </EditComposerProvider>
     </QuoteComposerProvider>
   );
 }

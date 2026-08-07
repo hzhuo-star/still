@@ -12,6 +12,7 @@ import {
 } from "../../convex/contract/post";
 import { PostCard } from "@/posts/post-card";
 import { PostListSkeleton } from "@/posts/post-list-skeleton";
+import { EditComposerProvider } from "@/posts/edit-action";
 import { QuoteComposerProvider } from "@/posts/quote-action";
 import { ReplyComposer, ReplyNavigationProvider } from "@/posts/reply-composer";
 
@@ -147,62 +148,64 @@ export function ConversationView({
       }}
     >
       <QuoteComposerProvider>
-        <header>
-          <p className="text-label font-semibold tracking-wider text-sage uppercase">
-            Conversation
-          </p>
-          <h1 className="mt-2 font-reading text-title text-ink">
-            A flat, finite discussion
-          </h1>
-        </header>
-
-        <section aria-label="Conversation root" className="mt-8">
-          <ConversationEntryCard
-            entry={outcome.root}
-            requestedPostId={outcome.requestedPostId}
-          />
-        </section>
-
-        <ConversationReplyComposer
-          composeReply={composeReply}
-          key={outcome.requestedPostId}
-          openRequest={replyOpenRequest}
-          replies={outcome.replies}
-          requestedPostId={outcome.requestedPostId}
-          root={outcome.root}
-        />
-
-        <section aria-labelledby="conversation-replies" className="mt-8">
-          <h2
-            className="font-reading text-2xl text-ink"
-            id="conversation-replies"
-          >
-            Replies
-          </h2>
-          {outcome.replies.length === 0 ? (
-            <p className="border-t border-line py-8 text-body text-muted">
-              No Replies yet.
+        <EditComposerProvider>
+          <header>
+            <p className="text-label font-semibold tracking-wider text-sage uppercase">
+              Conversation
             </p>
-          ) : (
-            <ol className="m-0 mt-4 list-none p-0">
-              {outcome.replies.map((entry) => (
-                <li key={entry.post.postId}>
-                  <ConversationEntryCard
-                    entry={entry}
-                    requestedPostId={outcome.requestedPostId}
-                  />
-                </li>
-              ))}
-            </ol>
-          )}
-          <p className="border-t border-line py-8 text-center text-sm text-muted">
-            {outcome.ending === "complete"
-              ? "You’re caught up."
-              : outcome.requestedReplyWasOutsideWindow
-                ? `Showing the requested Reply and the latest ${CONVERSATION_REPLY_LIMIT - 1} replies.`
-                : `Showing the latest ${CONVERSATION_REPLY_LIMIT} replies.`}
-          </p>
-        </section>
+            <h1 className="mt-2 font-reading text-title text-ink">
+              A flat, finite discussion
+            </h1>
+          </header>
+
+          <section aria-label="Conversation root" className="mt-8">
+            <ConversationEntryCard
+              entry={outcome.root}
+              requestedPostId={outcome.requestedPostId}
+            />
+          </section>
+
+          <ConversationReplyComposer
+            composeReply={composeReply}
+            key={outcome.requestedPostId}
+            openRequest={replyOpenRequest}
+            replies={outcome.replies}
+            requestedPostId={outcome.requestedPostId}
+            root={outcome.root}
+          />
+
+          <section aria-labelledby="conversation-replies" className="mt-8">
+            <h2
+              className="font-reading text-2xl text-ink"
+              id="conversation-replies"
+            >
+              Replies
+            </h2>
+            {outcome.replies.length === 0 ? (
+              <p className="border-t border-line py-8 text-body text-muted">
+                No Replies yet.
+              </p>
+            ) : (
+              <ol className="m-0 mt-4 list-none p-0">
+                {outcome.replies.map((entry) => (
+                  <li key={entry.post.postId}>
+                    <ConversationEntryCard
+                      entry={entry}
+                      requestedPostId={outcome.requestedPostId}
+                    />
+                  </li>
+                ))}
+              </ol>
+            )}
+            <p className="border-t border-line py-8 text-center text-sm text-muted">
+              {outcome.ending === "complete"
+                ? "You’re caught up."
+                : outcome.requestedReplyWasOutsideWindow
+                  ? `Showing the requested Reply and the latest ${CONVERSATION_REPLY_LIMIT - 1} replies.`
+                  : `Showing the latest ${CONVERSATION_REPLY_LIMIT} replies.`}
+            </p>
+          </section>
+        </EditComposerProvider>
       </QuoteComposerProvider>
     </ReplyNavigationProvider>
   );

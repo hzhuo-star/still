@@ -7,6 +7,8 @@ import {
   createQuoteOutcomeValidator,
   createReplyArgsValidator,
   createReplyOutcomeValidator,
+  editPostArgsValidator,
+  editPostOutcomeValidator,
   getConversationArgsValidator,
   getConversationOutcomeValidator,
   listByMemberOutcomeValidator,
@@ -58,6 +60,14 @@ export const createQuote = mutation({
   returns: createQuoteOutcomeValidator,
   handler: async (ctx, args) =>
     await Posts.createQuote(ctx, args.targetPostId, args.commentary),
+});
+
+/** Replace the text of an active Post the authenticated Member authored. */
+export const edit = mutation({
+  args: editPostArgsValidator.fields,
+  returns: editPostOutcomeValidator,
+  handler: async (ctx, args) =>
+    await Posts.edit(ctx, args.postId, args.expectedRevision, args.content),
 });
 
 /** Resolve a stable Post URL into one bounded, flat public Conversation. */

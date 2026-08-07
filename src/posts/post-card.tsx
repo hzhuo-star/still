@@ -9,6 +9,7 @@ import type {
 } from "../../convex/contract/post";
 import { MemberAvatar } from "@/members/member-avatar";
 import { DeleteButton } from "@/posts/delete-button";
+import { EditAction } from "@/posts/edit-action";
 import { LikeButton } from "@/posts/like-button";
 import { QuoteAction } from "@/posts/quote-action";
 import { QuotedPostPreview } from "@/posts/quoted-post-preview";
@@ -59,6 +60,14 @@ function PostAuthor({ post }: { readonly post: AuthoredPostView }) {
           >
             {formatPublishedAt(post.publishedAt, now)}
           </time>
+          {post.editedAt === undefined ? null : (
+            <>
+              {" · "}
+              <span title={`Edited ${describePublishedAt(post.editedAt)}`}>
+                Edited
+              </span>
+            </>
+          )}
         </p>
       </div>
     </div>
@@ -105,6 +114,7 @@ function AuthoredPost({
         <LikeButton post={post} />
         <RepostButton post={post} />
         <QuoteAction post={post} />
+        {post.viewerCanEdit ? <EditAction post={post} /> : null}
         {showDelete && post.viewerCanDelete ? (
           <DeleteButton postId={post.postId} />
         ) : null}

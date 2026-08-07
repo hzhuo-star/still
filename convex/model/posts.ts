@@ -8,6 +8,7 @@ import {
   type CreatePostOutcome,
   type CreateQuoteOutcome,
   type CreateReplyOutcome,
+  type EditPostOutcome,
   type GetConversationOutcome,
   type ListByMemberOutcome,
   type AuthoredPostView,
@@ -102,6 +103,9 @@ async function toAuthoredPostView(
     viewerHasLiked: like !== null,
     viewerHasReposted: repost !== null,
     viewerCanDelete: viewerId === post.authorId,
+    viewerCanEdit: viewerId === post.authorId,
+    revision: currentRevision(post),
+    ...(post.editedAt === undefined ? {} : { editedAt: post.editedAt }),
     author,
   };
 
@@ -397,6 +401,16 @@ export async function create(
   return { _tag: "ok", postId };
 }
 
+/**
+ * Read a text-bearing Post's current revision.
+ *
+ * Posts published before the social expansion carry no revision, so they start
+ * at zero and an editor prepared against zero is not stale.
+ */
+function currentRevision(post: EngagementPostRecord): number {
+  return post.revision ?? 0;
+}
+
 type RepostRecord = Extract<Doc<"posts">, { readonly kind: "repost" }>;
 type DeletedPostRecord = Extract<Doc<"posts">, { readonly state: "deleted" }>;
 type EngagementPostRecord = Exclude<
@@ -619,6 +633,67 @@ export async function createReply(
   });
 
   return { _tag: "ok", postId };
+}
+
+/**
+ * Replace the text of an active Post the acting Member authored.
+ *
+ * The submitted revision is compared and incremented inside the same
+ * transaction as the write, so two editors working from one revision cannot
+ * both succeed: the loser receives the current revision and can reload. Nothing
+ * else about the Post changes — its id, kind, author, creation time,
+ * relationships, engagement, and Feed position are all untouched, and only the
+ * current body is stored.
+ *
+ * @param ctx - The Convex mutation context.
+ * @param postId - The Post whose text is changing.
+ * @param expectedRevision - The revision the editor prepared against.
+ * @param content - The untrusted replacement text.
+ * @returns The new revision and edit time, or a precise expected failure.
+ */
+export async function edit(
+  ctx: MutationCtx,
+  postId: Doc<"posts">["_id"],
+  expectedRevision: number,
+  content: string,
+): Promise<EditPostOutcome> {
+  const member = await requireCurrent(ctx);
+  if (member._tag !== "ok") {
+    return member;
+  }
+
+  const post = await ctx.db.get("posts", postId);
+  if (post === null) {
+    return { _tag: "post-not-found" };
+  }
+  if (post.state === "deleted") {
+    return { _tag: "not-editable", reason: "deleted" };
+  }
+  if (post.kind === "repost") {
+    return { _tag: "not-editable", reason: "repost" };
+  }
+  if (post.authorId !== member.memberId) {
+    return { _tag: "not-author" };
+  }
+
+  const parsed = PostContent.parse(content);
+  if (parsed._tag === "err") {
+    return { _tag: "invalid-content", reason: parsed.error.reason };
+  }
+
+  const revision = currentRevision(post);
+  if (revision !== expectedRevision) {
+    return { _tag: "edit-conflict", revision, content: post.content };
+  }
+
+  const editedAt = Date.now();
+  await ctx.db.patch("posts", post._id, {
+    content: parsed.value,
+    revision: revision + 1,
+    editedAt,
+  });
+
+  return { _tag: "ok", revision: revision + 1, editedAt };
 }
 
 /**

@@ -39,6 +39,15 @@ const postViewFields = {
   viewerHasReposted: v.boolean(),
   /** Whether the current viewer may delete the Post. */
   viewerCanDelete: v.boolean(),
+  /** Whether the current viewer may edit the Post's text. */
+  viewerCanEdit: v.boolean(),
+  /**
+   * The Post's current optimistic-concurrency revision. An edit must submit
+   * the revision it was prepared against.
+   */
+  revision: v.number(),
+  /** When the Post was last edited; absent until its first edit. */
+  editedAt: v.optional(v.number()),
   /** The Post author's projected public identity. */
   author: memberIdentityValidator,
 } as const;
@@ -371,6 +380,64 @@ export const toggleRepostOutcomeValidator = v.union(
 export type ToggleRepostOutcome = Readonly<
   Infer<typeof toggleRepostOutcomeValidator>
 >;
+
+/** Arguments accepted when editing an active text-bearing Post. */
+export const editPostArgsValidator = v.object({
+  /** The Post whose text is changing. */
+  postId: v.id("posts"),
+  /** The revision the editor prepared against; a stale value conflicts. */
+  expectedRevision: v.number(),
+  /** The replacement text; parsed under the existing Post content contract. */
+  content: v.string(),
+});
+
+/** Arguments accepted when editing an active text-bearing Post. */
+export type EditPostArgs = Readonly<Infer<typeof editPostArgsValidator>>;
+
+/** Why a Post cannot carry an edit at all. */
+export const notEditableReasonValidator = v.union(
+  /** Deleted Posts keep only their structural Tombstone. */
+  v.literal("deleted"),
+  /** A Repost wrapper has no text of its own. */
+  v.literal("repost"),
+);
+
+/** The outcome of editing an active text-bearing Post. */
+export const editPostOutcomeValidator = v.union(
+  v.object({
+    _tag: v.literal("ok"),
+    /** The Post's revision after the edit. */
+    revision: v.number(),
+    /** When this edit was recorded. */
+    editedAt: v.number(),
+  }),
+  v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
+  v.object({ _tag: v.literal("post-not-found") }),
+  v.object({ _tag: v.literal("not-author") }),
+  v.object({
+    _tag: v.literal("not-editable"),
+    reason: notEditableReasonValidator,
+  }),
+  v.object({
+    _tag: v.literal("invalid-content"),
+    reason: v.union(v.literal("empty"), v.literal("too-long")),
+  }),
+  v.object({
+    _tag: v.literal("edit-conflict"),
+    /** The Post's current revision, which a retry must submit. */
+    revision: v.number(),
+    /**
+     * The text the winning save stored. An editor needs to see it to choose
+     * between keeping their draft and taking the newer wording; this is the
+     * current body, not retained history.
+     */
+    content: v.string(),
+  }),
+);
+
+/** The outcome of editing an active text-bearing Post. */
+export type EditPostOutcome = Readonly<Infer<typeof editPostOutcomeValidator>>;
 
 /** The outcome of removing a Post. */
 export const removePostOutcomeValidator = v.union(

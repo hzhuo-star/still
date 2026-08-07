@@ -1565,3 +1565,403 @@ describe("Posts.listByMember", () => {
     expect(outcome.ending).toBe("truncated");
   });
 });
+
+describe("Posts.edit", () => {
+  async function revisionOf(
+    backend: TestConvex<typeof schema>,
+    postId: Id<"posts">,
+  ): Promise<number | undefined> {
+    return await backend.run(async (ctx) => {
+      const post = await ctx.db.get("posts", postId);
+      return post !== null && "revision" in post ? post.revision : undefined;
+    });
+  }
+
+  test("refuses signed-out and unregistered editors without writing", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "A quiet thought.");
+
+    await expect(
+      backend.mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "Rewritten by nobody.",
+      }),
+    ).resolves.toEqual({ _tag: "unauthenticated" });
+
+    const awaitingOnboarding = backend.withIdentity(benIdentity);
+    await awaitingOnboarding.mutation(api.members.ensureCurrent, {});
+    await expect(
+      awaitingOnboarding.mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "Rewritten by a pending identity.",
+      }),
+    ).resolves.toEqual({ _tag: "registration-required" });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(feed.posts[0]).toMatchObject({ content: "A quiet thought." });
+  });
+
+  test("edits Standalone content while preserving identity and engagement", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "First wording.");
+    const laterPostId = await publish(
+      backend,
+      aliceIdentity,
+      "Published after.",
+    );
+    const replyId = await publishReply(
+      backend,
+      benIdentity,
+      postId,
+      "A Reply that must survive.",
+    );
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleLike, { postId });
+    const before = await backend.run(async (ctx) =>
+      ctx.db.get("posts", postId),
+    );
+
+    const edited = await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.edit, {
+      postId,
+      expectedRevision: 0,
+      content: "  Second wording.  ",
+    });
+
+    expect(edited).toMatchObject({ _tag: "ok", revision: 1 });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(feed.posts.map((post) => post.postId)).toEqual([
+      laterPostId,
+      postId,
+    ]);
+    expect(feed.posts[1]).toMatchObject({
+      postId,
+      kind: "standalone",
+      content: "Second wording.",
+      likeCount: 1,
+      activeReplyCount: 1,
+      activeRepostCount: 0,
+      author: { displayName: "Alice Reader" },
+    });
+    expect(feed.posts[1]?.publishedAt).toBe(before?._creationTime);
+
+    const conversation = await backend.query(api.posts.getConversation, {
+      postId,
+    });
+    expect(conversation).toMatchObject({
+      _tag: "ok",
+      replies: [{ _tag: "active", post: { postId: replyId } }],
+    });
+  });
+
+  test("increments the revision monotonically and records an edited timestamp", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "First wording.");
+    const asAlice = await asMember(backend, aliceIdentity);
+
+    expect(await revisionOf(backend, postId)).toBe(0);
+
+    const first = await asAlice.mutation(api.posts.edit, {
+      postId,
+      expectedRevision: 0,
+      content: "Second wording.",
+    });
+    const second = await asAlice.mutation(api.posts.edit, {
+      postId,
+      expectedRevision: 1,
+      content: "Third wording.",
+    });
+
+    expect(first).toMatchObject({ _tag: "ok", revision: 1 });
+    expect(second).toMatchObject({ _tag: "ok", revision: 2 });
+    if (first._tag !== "ok" || second._tag !== "ok") {
+      return;
+    }
+    expect(second.editedAt).toBeGreaterThanOrEqual(first.editedAt);
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(feed.posts[0]).toMatchObject({
+      content: "Third wording.",
+      revision: 2,
+      editedAt: second.editedAt,
+      viewerCanEdit: false,
+    });
+  });
+
+  test("rejects a stale expected revision as a conflict without writing", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "First wording.");
+    const asAlice = await asMember(backend, aliceIdentity);
+
+    await asAlice.mutation(api.posts.edit, {
+      postId,
+      expectedRevision: 0,
+      content: "Saved by the first tab.",
+    });
+
+    await expect(
+      asAlice.mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "Saved by a stale tab.",
+      }),
+    ).resolves.toEqual({
+      _tag: "edit-conflict",
+      revision: 1,
+      content: "Saved by the first tab.",
+    });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    expect(feed.posts[0]).toMatchObject({
+      content: "Saved by the first tab.",
+      revision: 1,
+    });
+  });
+
+  test("lets exactly one of two concurrent editors win", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "First wording.");
+    const asAlice = await asMember(backend, aliceIdentity);
+
+    const [first, second] = await Promise.all([
+      asAlice.mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "One tab wins.",
+      }),
+      asAlice.mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "The other tab conflicts.",
+      }),
+    ]);
+
+    expect([first._tag, second._tag].sort()).toEqual(["edit-conflict", "ok"]);
+    expect(await revisionOf(backend, postId)).toBe(1);
+  });
+
+  test("refuses a non-author, a Repost wrapper, and a Tombstone precisely", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "Alice wrote this.");
+    const repostOutcome = await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleRepost, { postId });
+    expect(repostOutcome).toMatchObject({ _tag: "ok", state: "reposted" });
+    const repostId = await backend.run(async (ctx) => {
+      const repost = await ctx.db
+        .query("posts")
+        .withIndex("by_sourcePostId_and_authorId", (q) =>
+          q.eq("sourcePostId", postId),
+        )
+        .unique();
+      return repost?._id ?? null;
+    });
+    if (repostId === null) {
+      throw new Error("Expected a Repost wrapper");
+    }
+
+    await expect(
+      (await asMember(backend, benIdentity)).mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "Ben rewriting Alice.",
+      }),
+    ).resolves.toEqual({ _tag: "not-author" });
+    await expect(
+      (await asMember(backend, benIdentity)).mutation(api.posts.edit, {
+        postId: repostId,
+        expectedRevision: 0,
+        content: "Editing a Repost wrapper.",
+      }),
+    ).resolves.toEqual({ _tag: "not-editable", reason: "repost" });
+
+    const tombstoneId = await publish(backend, aliceIdentity, "Soon deleted.");
+    await publishReply(backend, benIdentity, tombstoneId, "Keeps the thread.");
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.remove, { postId: tombstoneId });
+
+    await expect(
+      (await asMember(backend, aliceIdentity)).mutation(api.posts.edit, {
+        postId: tombstoneId,
+        expectedRevision: 0,
+        content: "Editing a Tombstone.",
+      }),
+    ).resolves.toEqual({ _tag: "not-editable", reason: "deleted" });
+  });
+
+  test("applies the Post content contract, including empty Quote commentary", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "First wording.");
+    const quoteId = await publishQuote(
+      backend,
+      aliceIdentity,
+      postId,
+      "Worth reading.",
+    );
+    const asAlice = await asMember(backend, aliceIdentity);
+
+    await expect(
+      asAlice.mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "   ",
+      }),
+    ).resolves.toEqual({ _tag: "invalid-content", reason: "empty" });
+    await expect(
+      asAlice.mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "a".repeat(281),
+      }),
+    ).resolves.toEqual({ _tag: "invalid-content", reason: "too-long" });
+    await expect(
+      asAlice.mutation(api.posts.edit, {
+        postId: quoteId,
+        expectedRevision: 0,
+        content: "  ",
+      }),
+    ).resolves.toEqual({ _tag: "invalid-content", reason: "empty" });
+
+    const stored = await backend.run(async (ctx) => ({
+      standalone: await ctx.db.get("posts", postId),
+      quote: await ctx.db.get("posts", quoteId),
+    }));
+    expect(stored.standalone).toMatchObject({ content: "First wording." });
+    expect(stored.quote).toMatchObject({
+      kind: "quote",
+      content: "Worth reading.",
+    });
+  });
+
+  test("edits Reply content and Quote commentary in place", async () => {
+    const backend = newBackend();
+    const rootId = await publish(backend, aliceIdentity, "A root Post.");
+    const replyId = await publishReply(
+      backend,
+      aliceIdentity,
+      rootId,
+      "First Reply wording.",
+    );
+    const quoteId = await publishQuote(
+      backend,
+      aliceIdentity,
+      rootId,
+      "First commentary.",
+    );
+    const asAlice = await asMember(backend, aliceIdentity);
+
+    await expect(
+      asAlice.mutation(api.posts.edit, {
+        postId: replyId,
+        expectedRevision: 0,
+        content: "Second Reply wording.",
+      }),
+    ).resolves.toMatchObject({ _tag: "ok", revision: 1 });
+    await expect(
+      asAlice.mutation(api.posts.edit, {
+        postId: quoteId,
+        expectedRevision: 0,
+        content: "Second commentary.",
+      }),
+    ).resolves.toMatchObject({ _tag: "ok", revision: 1 });
+
+    const conversation = await backend.query(api.posts.getConversation, {
+      postId: rootId,
+    });
+    expect(conversation).toMatchObject({
+      _tag: "ok",
+      replies: [
+        {
+          _tag: "active",
+          post: {
+            postId: replyId,
+            kind: "reply",
+            content: "Second Reply wording.",
+            parentPostId: rootId,
+            conversationRootId: rootId,
+          },
+        },
+      ],
+    });
+
+    const stored = await backend.run(async (ctx) =>
+      ctx.db.get("posts", quoteId),
+    );
+    expect(stored).toMatchObject({
+      kind: "quote",
+      content: "Second commentary.",
+      referencedPostId: rootId,
+    });
+  });
+
+  test("accepts a legacy Post whose revision was never initialized", async () => {
+    const backend = newBackend();
+    const memberId = await registerMember(backend, aliceIdentity);
+    const postId = await backend.run(async (ctx) =>
+      ctx.db.insert("posts", {
+        state: "active",
+        kind: "standalone",
+        authorId: memberId,
+        content: "Published before revisions existed.",
+        likeCount: 0,
+        activeReplyCount: 0,
+        activeRepostCount: 0,
+      }),
+    );
+
+    await expect(
+      (await asMember(backend, aliceIdentity)).mutation(api.posts.edit, {
+        postId,
+        expectedRevision: 0,
+        content: "Edited after the expansion.",
+      }),
+    ).resolves.toMatchObject({ _tag: "ok", revision: 1 });
+  });
+
+  test("hydrates edited content into live Quote previews", async () => {
+    const backend = newBackend();
+    const sourceId = await publish(backend, aliceIdentity, "First wording.");
+    await publishQuote(backend, benIdentity, sourceId, "Read this.");
+
+    await (
+      await asMember(backend, aliceIdentity)
+    ).mutation(api.posts.edit, {
+      postId: sourceId,
+      expectedRevision: 0,
+      content: "Second wording.",
+    });
+
+    const feed = await backend.query(api.posts.listFeed, {});
+    const quote = feed.posts.find((post) => post.kind === "quote");
+    expect(quote?.kind === "quote" ? quote.reference : null).toMatchObject({
+      _tag: "available",
+      post: { postId: sourceId, content: "Second wording." },
+    });
+  });
+
+  test("exposes edit permission to the author across Repost wrappers", async () => {
+    const backend = newBackend();
+    const postId = await publish(backend, aliceIdentity, "Alice wrote this.");
+    await (
+      await asMember(backend, benIdentity)
+    ).mutation(api.posts.toggleRepost, { postId });
+
+    const asAlice = await asMember(backend, aliceIdentity);
+    const feed = await asAlice.query(api.posts.listFeed, {});
+    const repost = feed.posts.find((post) => post.kind === "repost");
+
+    expect(repost?.kind === "repost" ? repost.source : null).toMatchObject({
+      postId,
+      viewerCanEdit: true,
+    });
+    expect(feed.posts.find((post) => post.kind === "standalone")).toMatchObject(
+      { viewerCanEdit: true },
+    );
+  });
+});
