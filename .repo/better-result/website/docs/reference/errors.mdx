@@ -1,0 +1,82 @@
+---
+title: Error API
+description: Reference for TaggedError, exhaustive and partial matching, UnhandledException, codec errors, and Panic.
+---
+
+## `TaggedError(tag)`
+
+Factory for a generic Error subclass:
+
+```ts
+class NotFound extends TaggedError("NotFound")<{
+  id: string;
+  message: string;
+}> {}
+```
+
+Instances expose `_tag`, declared properties, native Error fields, `toJSON()`, exhaustive `.match(handlers)`, and generator iterator behavior. Concrete classes expose `.is(value)`.
+
+## Guards
+
+| API                       | Narrows to            |
+| ------------------------- | --------------------- |
+| `TaggedError.is(value)`   | `AnyTaggedError`      |
+| `isTaggedError(value)`    | `AnyTaggedError`      |
+| `ConcreteError.is(value)` | the concrete subclass |
+| `Panic.is(value)`         | `Panic`               |
+| `isPanic(value)`          | `Panic`               |
+
+## Matching
+
+| API                                            | Behavior                                             |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| `error.match(handlers)`                        | Exhaustive instance match over every `_tag`          |
+| `matchError(error, handlers)`                  | Exhaustive standalone match over every `_tag`        |
+| `matchError(handlers)(error)`                  | Data-last exhaustive match                           |
+| `matchErrorPartial(error, handlers)`           | Handle selected tags; return others unchanged        |
+| `matchErrorPartial(error, handlers, fallback)` | Handle selected tags; transform others with fallback |
+| `matchErrorPartial(handlers, fallback)(error)` | Data-last partial match                              |
+
+Handler return types are inferred as a union when they differ. If an exhaustive `.match()` or `matchError` handler throws, the operation throws `Panic` with the original exception as `cause`. `matchErrorPartial` retains its fallback and handler exception behavior.
+
+The `match` property name is reserved on `TaggedError` payloads; TypeScript also rejects incompatible subclass members with that name.
+
+## Built-in error classes
+
+### `UnhandledException`
+
+Returned by `Result.try` and `Result.tryPromise` when no custom catch translator is supplied.
+
+| Property  | Type                   |
+| --------- | ---------------------- |
+| `_tag`    | `"UnhandledException"` |
+| `cause`   | `unknown`              |
+| `message` | `string`               |
+
+### `ResultSerializationError`
+
+Returned when a selected serialization schema reports validation issues. `serializeUnsafe` throws `Panic` with this error as its cause instead of returning it.
+
+| Property | Type                                     |
+| -------- | ---------------------------------------- |
+| `_tag`   | `"ResultSerializationError"`             |
+| `value`  | `unknown`                                |
+| `issues` | optional readonly Standard Schema issues |
+
+### `ResultDeserializationError`
+
+Returned for an invalid serialized envelope or when a selected payload schema reports issues. `deserializeUnsafe` throws `Panic` with this error as its cause while preserving valid decoded domain Err values.
+
+| Property | Type                                                                     |
+| -------- | ------------------------------------------------------------------------ |
+| `_tag`   | `"ResultDeserializationError"`                                           |
+| `value`  | `unknown`                                                                |
+| `issues` | optional readonly Standard Schema issues; absent for an invalid envelope |
+
+### `Panic`
+
+Thrown for defects. Exposes `_tag: "Panic"`, `message`, optional `cause`, `toJSON()`, static `.is`, and generator iterator behavior.
+
+## `panic(message, cause?)`
+
+Throws a new `Panic` and returns `never` at the type level.

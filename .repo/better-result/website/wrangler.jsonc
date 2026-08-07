@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "better-result-docs",
+  "compatibility_date": "2026-07-30",
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [
+    {
+      "pattern": "better-result.dev/*",
+      "zone_name": "better-result.dev",
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+    },
+  },
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "404-page",
+  },
+}

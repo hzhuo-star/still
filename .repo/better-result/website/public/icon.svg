@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="better-result logo">
+  <defs>
+    <linearGradient id="better-result-blue" x1="72" y1="48" x2="440" y2="464" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#39adff"/>
+      <stop offset="1" stop-color="#238ee9"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#better-result-blue)"/>
+  <path fill="#fff" fill-rule="evenodd" d="M101 104h57v116l19-1 18-25h43l49 50v105l-50 58h-83l-53-50V104Zm57 164v88h57l-18 13 28 38h6V268h-73Z"/>
+  <path fill="#fff" d="m295 267 53-48h91l-87 91v100h-57V267Z"/>
+</svg>
