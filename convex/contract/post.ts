@@ -217,6 +217,24 @@ export const postListValidator = v.object({
 /** A bounded collection of complete Post display models. */
 export type PostList = Readonly<Infer<typeof postListValidator>>;
 
+/**
+ * The outcome of reading the viewer's own Following Feed.
+ *
+ * The Feed exists only for a registered Member, so a signed-out or
+ * still-onboarding visitor receives the precise refusal that routes them to
+ * sign-in or Registration instead of a misleading empty list.
+ */
+export const listFollowingFeedOutcomeValidator = v.union(
+  postListValidator.extend({ _tag: v.literal("ok") }),
+  v.object({ _tag: v.literal("unauthenticated") }),
+  registrationRequiredOutcomeValidator,
+);
+
+/** The outcome of reading the viewer's own Following Feed. */
+export type ListFollowingFeedOutcome = Readonly<
+  Infer<typeof listFollowingFeedOutcomeValidator>
+>;
+
 /** The outcome of reading one Member's bounded Post collection. */
 export const listByMemberOutcomeValidator = v.union(
   postListValidator.extend({ _tag: v.literal("ok") }),

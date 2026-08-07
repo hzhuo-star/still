@@ -11,6 +11,7 @@ import {
   type EditPostOutcome,
   type GetConversationOutcome,
   type ListByMemberOutcome,
+  type ListFollowingFeedOutcome,
   type AuthoredPostView,
   type PostList,
   type PostView,
@@ -20,6 +21,7 @@ import {
   type ToggleRepostOutcome,
 } from "../contract/post";
 import { shouldNeverHappen } from "../lib/result";
+import { followedMemberIds } from "./follows";
 import {
   currentMemberId,
   getIdentity,
@@ -244,7 +246,13 @@ function mergeNewest(
 ): ReadonlyArray<Doc<"posts">> {
   return postPages
     .flat()
-    .sort((left, right) => right._creationTime - left._creationTime)
+    .sort(
+      // Equal publication times fall back to the id so every merge of the
+      // same ranges renders one deterministic order.
+      (left, right) =>
+        right._creationTime - left._creationTime ||
+        (left._id < right._id ? 1 : -1),
+    )
     .slice(0, FEED_LIMIT + 1);
 }
 
@@ -297,6 +305,55 @@ export async function listFeed(ctx: QueryCtx): Promise<PostList> {
   const page = mergeNewest(standalonePosts, quotePosts, reposts);
 
   return await toBoundedList(ctx, page, viewerId);
+}
+
+/** The Post kinds a Feed entry may hold; Replies stay in Conversations. */
+const FEED_ENTRY_KINDS = ["standalone", "quote", "repost"] as const;
+
+/**
+ * Read the acting Member's exact Following Feed as complete display models.
+ *
+ * The Feed is built at read time from bounded indexed ranges — one per Feed
+ * kind for the viewer and each of their at most 50 followed Members — merged
+ * newest-first under the shared 51-to-50 contract. Reading
+ * the graph and the Posts in one query keeps Follow and Post changes
+ * transactionally consistent and reactive without publish-time fan-out, and no
+ * followed Member is ever sampled or omitted.
+ *
+ * @param ctx - The Convex query context.
+ * @returns The viewer's bounded Following Feed, or the precise refusal that
+ *   routes a signed-out or still-onboarding visitor to the missing step.
+ */
+export async function listFollowingFeed(
+  ctx: QueryCtx,
+): Promise<ListFollowingFeedOutcome> {
+  const member = await requireCurrent(ctx);
+
+  if (member._tag !== "ok") {
+    return member;
+  }
+
+  const authorIds = [
+    member.memberId,
+    ...(await followedMemberIds(ctx, member.memberId)),
+  ];
+  const pages = await Promise.all(
+    authorIds.flatMap((authorId) =>
+      FEED_ENTRY_KINDS.map(
+        async (kind) =>
+          await ctx.db
+            .query("posts")
+            .withIndex("by_authorId_and_state_and_kind", (q) =>
+              q.eq("authorId", authorId).eq("state", "active").eq("kind", kind),
+            )
+            .order("desc")
+            .take(FEED_LIMIT + 1),
+      ),
+    ),
+  );
+  const page = mergeNewest(...pages);
+
+  return { _tag: "ok", ...(await toBoundedList(ctx, page, member.memberId)) };
 }
 
 /**

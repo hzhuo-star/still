@@ -186,6 +186,28 @@ async function applyCountDelta(
 }
 
 /**
+ * Read the Members one Member currently follows, for bounded fan-in reads.
+ *
+ * The outgoing side is capped at {@link MAX_FOLLOWING} by {@link setFollow},
+ * so the whole graph edge list a Following Feed needs fits one bounded read.
+ *
+ * @param ctx - The Convex query context.
+ * @param followerId - The Member whose outgoing relationships are read.
+ * @returns The followed Member ids, at most {@link MAX_FOLLOWING}.
+ */
+export async function followedMemberIds(
+  ctx: QueryCtx,
+  followerId: Id<"members">,
+): Promise<ReadonlyArray<Id<"members">>> {
+  const relations = await ctx.db
+    .query("follows")
+    .withIndex("by_followerId", (q) => q.eq("followerId", followerId))
+    .take(MAX_FOLLOWING);
+
+  return relations.map((relation) => relation.followedId);
+}
+
+/**
  * Read the Members who follow one Member, newest relationship first.
  *
  * @param ctx - The Convex query context.

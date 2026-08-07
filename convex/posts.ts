@@ -12,6 +12,7 @@ import {
   getConversationArgsValidator,
   getConversationOutcomeValidator,
   listByMemberOutcomeValidator,
+  listFollowingFeedOutcomeValidator,
   postListValidator,
   removePostOutcomeValidator,
   toggleLikeOutcomeValidator,
@@ -24,6 +25,13 @@ export const listFeed = query({
   args: {},
   returns: postListValidator,
   handler: async (ctx) => await Posts.listFeed(ctx),
+});
+
+/** Read the acting Member's exact Following Feed, newest first. */
+export const listFollowingFeed = query({
+  args: {},
+  returns: listFollowingFeedOutcomeValidator,
+  handler: async (ctx) => await Posts.listFollowingFeed(ctx),
 });
 
 /** Read one Member's Posts for their public Profile, newest first. */
