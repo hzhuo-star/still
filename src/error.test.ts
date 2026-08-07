@@ -1,0 +1,713 @@
+import { describe, expect, it } from "vitest";
+import {
+  Panic,
+  TaggedError,
+  UnhandledException,
+  ResultDeserializationError,
+  ResultSerializationError,
+  matchError,
+  matchErrorPartial,
+  isTaggedError,
+} from "./error";
+import { Result, type Result as ResultType } from "./result";
+
+class NotFoundError extends TaggedError("NotFoundError")<{
+  id: string;
+  message: string;
+}> {}
+
+class ValidationError extends TaggedError("ValidationError")<{
+  field: string;
+  message: string;
+}> {}
+
+class NetworkError extends TaggedError("NetworkError")<{
+  url: string;
+  message: string;
+}> {}
+
+type AppError = NotFoundError | ValidationError | NetworkError;
+
+class StructuralTaggedError extends Error {
+  readonly _tag = "StructuralTaggedError";
+}
+
+class InheritedPropertyTagError extends Error {
+  readonly _tag = "toString";
+}
+
+describe("TaggedError", () => {
+  describe("construction", () => {
+    it("sets name to tag", () => {
+      const error = new NotFoundError({ id: "123", message: "Not found: 123" });
+      expect(error.name).toBe("NotFoundError");
+    });
+
+    it("sets message", () => {
+      const error = new NotFoundError({ id: "123", message: "Not found: 123" });
+      expect(error.message).toBe("Not found: 123");
+    });
+
+    it("has _tag discriminator", () => {
+      const error = new NotFoundError({ id: "123", message: "Not found" });
+      expect(error._tag).toBe("NotFoundError");
+    });
+
+    it("preserves custom properties", () => {
+      const error = new NotFoundError({ id: "abc", message: "Not found" });
+      expect(error.id).toBe("abc");
+    });
+
+    it("chains cause in stack trace", () => {
+      const cause = new Error("root cause");
+
+      class ErrorWithCause extends TaggedError("ErrorWithCause")<{
+        message: string;
+        cause: unknown;
+      }> {}
+
+      const error = new ErrorWithCause({ message: "wrapper", cause });
+      expect(error.stack).toContain("Caused by:");
+      expect(error.stack).toContain("root cause");
+    });
+
+    it("indents nested causes", () => {
+      const inner = new Error("inner");
+      class MiddleError extends TaggedError("MiddleError")<{
+        message: string;
+        cause: unknown;
+      }> {}
+      class OuterError extends TaggedError("OuterError")<{
+        message: string;
+        cause: unknown;
+      }> {}
+
+      const middle = new MiddleError({ message: "middle", cause: inner });
+      const outer = new OuterError({ message: "outer", cause: middle });
+
+      expect(outer.stack).toContain("Caused by:");
+      // Should have nested indentation
+      const lines = outer.stack?.split("\n") ?? [];
+      const causedByLines = lines.filter((l) => l.includes("Caused by:"));
+      expect(causedByLines.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it.each([
+      (value: unknown) => new ResultSerializationError({ value }),
+      (value: unknown) => new ResultDeserializationError({ value }),
+    ])("keeps codec error values enumerable and serializable", (makeError) => {
+      const value = { field: "invalid" };
+      const error = makeError(value);
+
+      expect(Object.keys(error)).toContain("value");
+      expect(error.toJSON()).toHaveProperty("value", value);
+      expect(JSON.parse(JSON.stringify(error))).toHaveProperty("value", value);
+    });
+  });
+
+  describe("isTaggedError", () => {
+    it("returns true for TaggedError", () => {
+      expect(isTaggedError(new NotFoundError({ id: "x", message: "not found" }))).toBe(true);
+    });
+
+    it("narrows TaggedError to include toJSON", () => {
+      const error: unknown = new NotFoundError({ id: "x", message: "not found" });
+
+      if (isTaggedError(error)) {
+        const json: object = error.toJSON();
+        expect(json).toMatchObject({ _tag: "NotFoundError", id: "x", message: "not found" });
+        return;
+      }
+
+      throw new Error("Expected isTaggedError to narrow TaggedError");
+    });
+
+    it("returns false for plain Error", () => {
+      expect(isTaggedError(new Error())).toBe(false);
+    });
+
+    it("returns false for Error with _tag but no toJSON", () => {
+      const error = Object.assign(new Error("fake"), { _tag: "FakeError" });
+      expect(isTaggedError(error)).toBe(false);
+    });
+
+    it("returns false for non-errors", () => {
+      expect(isTaggedError({ _tag: "fake" })).toBe(false);
+    });
+  });
+
+  describe("static is() method", () => {
+    it("returns true for own instance", () => {
+      const err = new NotFoundError({ id: "123", message: "not found" });
+      expect(NotFoundError.is(err)).toBe(true);
+    });
+
+    it("returns false for different TaggedError", () => {
+      const err = new ValidationError({ field: "email", message: "invalid" });
+      expect(NotFoundError.is(err)).toBe(false);
+    });
+
+    it("returns false for plain Error", () => {
+      expect(NotFoundError.is(new Error())).toBe(false);
+    });
+
+    it("returns false for non-errors", () => {
+      expect(NotFoundError.is({ _tag: "NotFoundError" })).toBe(false);
+    });
+
+    it("narrows unknown to the concrete TaggedError subclass", () => {
+      const error: unknown = new NotFoundError({ id: "123", message: "not found" });
+
+      if (!NotFoundError.is(error)) {
+        throw new Error("Expected NotFoundError.is to recognize its own instance");
+      }
+
+      const _error: NotFoundError = error;
+      const id: string = error.id;
+      const tag: "NotFoundError" = error._tag;
+      // @ts-expect-error - narrowing must not add properties from another TaggedError subclass
+      void error.field;
+      void _error;
+      expect({ id, tag }).toEqual({ id: "123", tag: "NotFoundError" });
+    });
+
+    it("narrows built-in TaggedError subclasses with custom constructors", () => {
+      const invalidValue = { status: "invalid" };
+      const error: unknown = new ResultDeserializationError({ value: invalidValue });
+
+      if (!ResultDeserializationError.is(error)) {
+        throw new Error("Expected ResultDeserializationError.is to recognize its own instance");
+      }
+
+      const _error: ResultDeserializationError = error;
+      const value: unknown = error.value;
+      void _error;
+      expect(value).toBe(invalidValue);
+    });
+
+    it("distinguishes subclasses that share a TaggedError base class", () => {
+      const SharedError = TaggedError("SharedError");
+      class FooError extends SharedError<{ foo: string }> {}
+      class BarError extends SharedError<{ bar: string }> {}
+      class ChildFooError extends FooError {}
+
+      const fooError = new FooError({ foo: "foo" });
+      const barError = new BarError({ bar: "bar" });
+      const childFooError = new ChildFooError({ foo: "child" });
+
+      expect(FooError.is(fooError)).toBe(true);
+      expect(FooError.is(childFooError)).toBe(true);
+      expect(FooError.is(barError)).toBe(false);
+      expect(BarError.is(fooError)).toBe(false);
+    });
+
+    it("FooError.is(fooError) is true", () => {
+      class FooError extends TaggedError("FooError")<{ message: string }> {}
+      const fooError = new FooError({ message: "foo" });
+      expect(FooError.is(fooError)).toBe(true);
+    });
+
+    it("BarError.is(fooError) is false", () => {
+      class FooError extends TaggedError("FooError")<{ message: string }> {}
+      class BarError extends TaggedError("BarError")<{ message: string }> {}
+      const fooError = new FooError({ message: "foo" });
+      expect(BarError.is(fooError)).toBe(false);
+    });
+
+    it("isTaggedError(fooError) is true for any TaggedError", () => {
+      class FooError extends TaggedError("FooError")<{ message: string }> {}
+      class BarError extends TaggedError("BarError")<{ message: string }> {}
+      const fooError = new FooError({ message: "foo" });
+      const barError = new BarError({ message: "bar" });
+      expect(isTaggedError(fooError)).toBe(true);
+      expect(isTaggedError(barError)).toBe(true);
+    });
+
+    it("TaggedError.is(fooError) is true for any TaggedError", () => {
+      class FooError extends TaggedError("FooError")<{ message: string }> {}
+      class BarError extends TaggedError("BarError")<{ message: string }> {}
+      const fooError = new FooError({ message: "foo" });
+      const barError = new BarError({ message: "bar" });
+      expect(TaggedError.is(fooError)).toBe(true);
+      expect(TaggedError.is(barError)).toBe(true);
+    });
+
+    it("TaggedError.is returns false for plain Error", () => {
+      expect(TaggedError.is(new Error())).toBe(false);
+    });
+  });
+
+  describe("match() method", () => {
+    const matchAppError = (error: AppError) =>
+      error.match({
+        NotFoundError: (selectedError) => `missing: ${selectedError.id}`,
+        ValidationError: (selectedError) => `invalid: ${selectedError.field}`,
+        NetworkError: (selectedError) => `network: ${selectedError.url}`,
+      });
+
+    it("dispatches every tagged error variant to its handler", () => {
+      const notFound = new NotFoundError({ id: "123", message: "not found" });
+      const validation = new ValidationError({ field: "email", message: "invalid" });
+      const network = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+
+      expect(matchAppError(notFound)).toBe("missing: 123");
+      expect(matchAppError(validation)).toBe("invalid: email");
+      expect(matchAppError(network)).toBe("network: https://api.example.com");
+    });
+
+    it("passes the selected error instance to its handler", () => {
+      const error: AppError = new NotFoundError({ id: "456", message: "not found" });
+
+      const selected = error.match({
+        NotFoundError: (selectedError) => selectedError,
+      });
+
+      expect(selected).toBe(error);
+    });
+
+    it("panics when the selected handler throws", () => {
+      const error = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+
+      let thrown: unknown;
+      try {
+        error.match({
+          NetworkError: (selectedError) => {
+            throw selectedError;
+          },
+        });
+      } catch (cause) {
+        thrown = cause;
+      }
+
+      expect(Panic.is(thrown)).toBe(true);
+      if (Panic.is(thrown)) {
+        expect(thrown.message).toBe("matchError handler threw");
+        expect(thrown.cause).toBe(error);
+      }
+    });
+  });
+
+  describe("matchError", () => {
+    const matchAppError = (error: AppError) =>
+      matchError(error, {
+        NotFoundError: (e) => `missing: ${e.id}`,
+        ValidationError: (e) => `invalid: ${e.field}`,
+        NetworkError: (e) => `network: ${e.url}`,
+      });
+
+    it("matches NotFoundError", () => {
+      const error: AppError = new NotFoundError({ id: "123", message: "not found" });
+      expect(matchAppError(error)).toBe("missing: 123");
+    });
+
+    it("matches ValidationError", () => {
+      const error: AppError = new ValidationError({ field: "email", message: "invalid" });
+      expect(matchAppError(error)).toBe("invalid: email");
+    });
+
+    it("matches NetworkError", () => {
+      const error: AppError = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+      expect(matchAppError(error)).toBe("network: https://api.example.com");
+    });
+
+    it("panics when the selected handler throws", () => {
+      const throwSelectedHandler = (error: AppError) =>
+        matchError(error, {
+          NotFoundError: (e) => `missing: ${e.id}`,
+          ValidationError: (e) => `invalid: ${e.field}`,
+          NetworkError: (e) => {
+            throw e;
+          },
+        });
+      const error = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+
+      let thrown: unknown;
+      try {
+        throwSelectedHandler(error);
+      } catch (cause) {
+        thrown = cause;
+      }
+
+      expect(Panic.is(thrown)).toBe(true);
+      if (Panic.is(thrown)) {
+        expect(thrown.message).toBe("matchError handler threw");
+        expect(thrown.cause).toBe(error);
+      }
+    });
+
+    it("matches structurally tagged errors without requiring TaggedError methods", () => {
+      const error = new StructuralTaggedError("structural");
+      const outcome = matchError(error, {
+        StructuralTaggedError: (e) => e.message,
+      });
+
+      expect(outcome).toBe("structural");
+    });
+
+    it("works data-last (pipeable)", () => {
+      const error: AppError = new NotFoundError({ id: "456", message: "not found" });
+      const matcher = matchError<AppError, string>({
+        NotFoundError: (e) => `missing: ${e.id}`,
+        ValidationError: (e) => `invalid: ${e.field}`,
+        NetworkError: (e) => `network: ${e.url}`,
+      });
+      expect(matcher(error)).toBe("missing: 456");
+    });
+
+    it("provides type narrowing in handlers", () => {
+      const error = new NotFoundError({ id: "789", message: "not found" }) as AppError;
+      const result = matchError(error, {
+        NotFoundError: (e) => {
+          // Type is narrowed: e.id exists, e.field would error
+          const id: string = e.id;
+          const tag: "NotFoundError" = e._tag;
+          return { id, tag };
+        },
+        ValidationError: (e) => {
+          // Type is narrowed: e.field exists
+          const field: string = e.field;
+          const tag: "ValidationError" = e._tag;
+          return { field, tag };
+        },
+        NetworkError: (e) => {
+          // Type is narrowed: e.url exists
+          const url: string = e.url;
+          const tag: "NetworkError" = e._tag;
+          return { url, tag };
+        },
+      });
+      expect(result).toEqual({ id: "789", tag: "NotFoundError" });
+    });
+  });
+
+  describe("matchErrorPartial", () => {
+    const matchPartialAppError = (error: AppError) =>
+      matchErrorPartial(
+        error,
+        {
+          NotFoundError: (e) => `missing: ${e.id}`,
+        },
+        (e) => `fallback: ${e._tag}`,
+      );
+
+    it("matches known tag", () => {
+      const error: AppError = new NotFoundError({ id: "123", message: "not found" });
+      expect(matchPartialAppError(error)).toBe("missing: 123");
+    });
+
+    it("falls back for unhandled tag", () => {
+      const error: AppError = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+      expect(matchPartialAppError(error)).toBe("fallback: NetworkError");
+    });
+
+    it("uses the identity fallback in data-first form", () => {
+      const matchWithIdentity = (error: AppError) =>
+        matchErrorPartial(error, {
+          NotFoundError: (e) => `missing: ${e.id}`,
+        });
+      const handled = new NotFoundError({ id: "123", message: "not found" });
+      const unhandled = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+
+      expect(matchWithIdentity(handled)).toBe("missing: 123");
+      expect(matchWithIdentity(unhandled)).toBe(unhandled);
+    });
+
+    it("uses the identity fallback in data-last form", () => {
+      const matchWithIdentity = matchErrorPartial({
+        NotFoundError: (e) => `handled: ${e._tag}`,
+      });
+      const handled = new NotFoundError({ id: "123", message: "not found" });
+      const unhandled = new ValidationError({ field: "email", message: "invalid" });
+
+      expect(matchWithIdentity(handled)).toBe("handled: NotFoundError");
+      expect(matchWithIdentity(unhandled)).toBe(unhandled);
+    });
+
+    it("wraps unhandled errors when Result.err is the pipeable onUnhandled callback", () => {
+      const recoverNotFound = matchErrorPartial(
+        {
+          NotFoundError: (error: NotFoundError) => Result.ok(error.id),
+        },
+        Result.err,
+      );
+      const handled = new NotFoundError({ id: "123", message: "not found" });
+      const unhandled = new ValidationError({ field: "email", message: "invalid" });
+
+      expect(recoverNotFound(handled).unwrap()).toBe("123");
+
+      const unhandledResult = recoverNotFound(unhandled);
+      expect(Result.isError(unhandledResult)).toBe(true);
+      if (Result.isError(unhandledResult)) {
+        expect(unhandledResult.error).toBe(unhandled);
+      }
+    });
+
+    it("is identity for an empty handler map", () => {
+      const error: AppError = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+
+      expect(matchErrorPartial(error, {})).toBe(error);
+      expect(matchErrorPartial({})(error)).toBe(error);
+    });
+
+    it("returns an unhandled structural tagged error unchanged", () => {
+      const error = new StructuralTaggedError("structural");
+
+      expect(matchErrorPartial(error, {})).toBe(error);
+      expect(matchErrorPartial({})(error)).toBe(error);
+    });
+
+    it("ignores inherited handler properties", () => {
+      const error = new InheritedPropertyTagError("prototype collision");
+
+      expect(matchErrorPartial(error, {})).toBe(error);
+      expect(matchErrorPartial({})(error)).toBe(error);
+      expect(matchErrorPartial(error, {}, (unhandled) => unhandled)).toBe(error);
+    });
+
+    it("calls an explicitly defined handler that shares an inherited property name", () => {
+      const error = new InheritedPropertyTagError("own handler");
+
+      expect(
+        matchErrorPartial(error, {
+          toString: (handled) => `handled: ${handled.message}`,
+        }),
+      ).toBe("handled: own handler");
+    });
+
+    it("propagates an exception from the selected fallback", () => {
+      const throwSelectedFallback = (error: AppError) =>
+        matchErrorPartial(error, { NotFoundError: (e) => `missing: ${e.id}` }, (e) => {
+          throw e;
+        });
+      const error = new NetworkError({
+        url: "https://api.example.com",
+        message: "failed",
+      });
+
+      let thrown: unknown;
+      try {
+        throwSelectedFallback(error);
+      } catch (cause) {
+        thrown = cause;
+      }
+
+      expect(thrown).toBe(error);
+    });
+
+    it("narrows fallback type to exclude handled errors (data-first)", () => {
+      // Wrapper function ensures E is inferred as AppError from the parameter type
+      const matchTwoHandlers = (error: AppError) =>
+        matchErrorPartial(
+          error,
+          {
+            NotFoundError: (e) => `not found: ${e.id}`,
+            NetworkError: (e) => `network: ${e.url}`,
+          },
+          (e) => {
+            // Fallback only receives ValidationError since others are handled
+            const _check: ValidationError = e;
+            // @ts-expect-error - e should NOT have 'id' property (NotFoundError excluded)
+            void e.id;
+            // @ts-expect-error - e should NOT have 'url' property (NetworkError excluded)
+            void e.url;
+            return `validation: ${_check.field}`;
+          },
+        );
+
+      const error = new ValidationError({ field: "email", message: "invalid" });
+      expect(matchTwoHandlers(error)).toBe("validation: email");
+    });
+
+    it("fallback type excludes single handled error (data-first)", () => {
+      // Wrapper function ensures E is inferred as AppError from the parameter type
+      const matchOneHandler = (error: AppError) =>
+        matchErrorPartial(
+          error,
+          {
+            NotFoundError: (e) => `not found: ${e.id}`,
+          },
+          (e) => {
+            // Fallback receives ValidationError | NetworkError
+            type Expected = ValidationError | NetworkError;
+            const _check: Expected = e;
+            // @ts-expect-error - e should NOT have 'id' property (NotFoundError excluded)
+            void e.id;
+            return `other: ${_check._tag}`;
+          },
+        );
+
+      const error = new NetworkError({ url: "https://example.com", message: "timeout" });
+      expect(matchOneHandler(error)).toBe("other: NetworkError");
+    });
+
+    it("data-last form narrows fallback type", () => {
+      // Data-last: only need <E, R> - H is inferred from inline handlers object
+      const matcher = matchErrorPartial<AppError, string>(
+        {
+          NotFoundError: (e) => `not found: ${e.id}`,
+          ValidationError: (e) => `validation: ${e.field}`,
+        },
+        (e) => {
+          // Only NetworkError remains - type is properly narrowed
+          const _check: NetworkError = e;
+          return `network: ${_check.url}`;
+        },
+      );
+
+      const error: AppError = new NetworkError({ url: "https://api.test.com", message: "failed" });
+      expect(matcher(error)).toBe("network: https://api.test.com");
+    });
+
+    it("data-last form with explicit H for stored handlers", () => {
+      // When handlers are stored in a variable, use `as const` or explicit H
+      const handlers = {
+        NotFoundError: (e: NotFoundError) => `not found: ${e.id}`,
+      } as const;
+
+      const matcher = matchErrorPartial<AppError, string, typeof handlers>(handlers, (e) => {
+        // ValidationError | NetworkError remains
+        type Expected = ValidationError | NetworkError;
+        const _check: Expected = e;
+        // @ts-expect-error - e should NOT have 'id' property (NotFoundError excluded)
+        void e.id;
+        return `other: ${_check._tag}`;
+      });
+
+      const error: AppError = new ValidationError({ field: "email", message: "invalid" });
+      expect(matcher(error)).toBe("other: ValidationError");
+    });
+
+    it("handles all errors leaving never in fallback", () => {
+      // Wrapper function ensures E is inferred as AppError from the parameter type
+      const matchAllHandlers = (error: AppError) =>
+        matchErrorPartial(
+          error,
+          {
+            NotFoundError: (e) => `not found: ${e.id}`,
+            ValidationError: (e) => `validation: ${e.field}`,
+            NetworkError: (e) => `network: ${e.url}`,
+          },
+          (_e) => {
+            // When all errors are handled, fallback receives never
+            type FallbackType = typeof _e;
+            type IsNever = [FallbackType] extends [never] ? true : false;
+            const _proof: IsNever = true;
+            void _proof;
+            return "unreachable";
+          },
+        );
+
+      const error = new NotFoundError({ id: "123", message: "missing" });
+      expect(matchAllHandlers(error)).toBe("not found: 123");
+    });
+  });
+
+  describe("Result.gen", () => {
+    it("can be used in a Result.gen block", () => {
+      const error = new NotFoundError({ id: "69", message: "missing" });
+      const result = Result.gen(function* () {
+        yield* error;
+        return Result.ok("success");
+      });
+      const _proof: ResultType<string, NotFoundError> = result;
+      void _proof;
+      expect(result.isErr()).toBe(true);
+      if (result.isOk()) throw "unreachable";
+      expect(result.error).toBe(error);
+    });
+
+    it("infers tagged errors in unions with yielded Results", () => {
+      const result = Result.gen(function* () {
+        if (Math.random() > 0.5) {
+          yield* Result.err(new ValidationError({ field: "name", message: "required" }));
+        }
+        yield* new NotFoundError({ id: "69", message: "missing" });
+        return Result.ok("success");
+      });
+      const _proof: ResultType<string, ValidationError | NotFoundError> = result;
+      void _proof;
+      expect(result.isErr()).toBe(true);
+    });
+
+    it("can be used in an async Result.gen block", async () => {
+      const error = new NotFoundError({ id: "69", message: "missing" });
+      const result = await Result.gen(async function* () {
+        yield* error;
+        return Result.ok("success");
+      });
+      const _proof: ResultType<string, NotFoundError> = result;
+      void _proof;
+      expect(result.isErr()).toBe(true);
+      if (result.isOk()) throw "unreachable";
+      expect(result.error).toBe(error);
+    });
+
+    it("runs generator cleanup when a tagged error short-circuits", () => {
+      let cleanedUp = false;
+      const result = Result.gen(function* () {
+        try {
+          yield* new NotFoundError({ id: "69", message: "missing" });
+        } finally {
+          cleanedUp = true;
+        }
+        return Result.ok("success");
+      });
+      expect(cleanedUp).toBe(true);
+      expect(result.isErr()).toBe(true);
+    });
+
+    it("supports built-in tagged errors in Result.gen blocks", () => {
+      const error = new UnhandledException({ cause: "boom" });
+      const result = Result.gen(function* () {
+        yield* error;
+        return Result.ok("success");
+      });
+      const _proof: ResultType<string, UnhandledException> = result;
+      void _proof;
+      expect(result.isErr()).toBe(true);
+      if (result.isOk()) throw "unreachable";
+      expect(result.error).toBe(error);
+    });
+  });
+});
+
+describe("UnhandledException", () => {
+  it("wraps Error cause", () => {
+    const cause = new Error("original");
+    const error = new UnhandledException({ cause });
+    expect(error._tag).toBe("UnhandledException");
+    expect(error.message).toBe("Unhandled exception: original");
+    expect(error.cause).toBe(cause);
+  });
+
+  it("wraps non-Error cause", () => {
+    const error = new UnhandledException({ cause: "string error" });
+    expect(error.message).toBe("Unhandled exception: string error");
+  });
+
+  it("handles null cause", () => {
+    const error = new UnhandledException({ cause: null });
+    expect(error.message).toBe("Unhandled exception: null");
+  });
+});

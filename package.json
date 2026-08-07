@@ -1,0 +1,60 @@
+{
+  "name": "better-result",
+  "version": "3.0.0",
+  "description": "Lightweight Result type with generator-based composition",
+  "keywords": [
+    "error-handling",
+    "functional",
+    "generator",
+    "result",
+    "typescript"
+  ],
+  "homepage": "https://better-result.dev",
+  "bugs": {
+    "url": "https://github.com/dmmulroy/better-result/issues"
+  },
+  "license": "MIT",
+  "author": "Dillon Mulroy <dillon.mulroy@gmail.com> (https://github.com/dmmulroy)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmmulroy/better-result.git"
+  },
+  "files": [
+    "dist/index.d.mts",
+    "dist/index.d.mts.map",
+    "dist/index.mjs",
+    "dist/index.mjs.map"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "bun run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "tsc --noEmit",
+    "check:typescript-minimum": "bun x --yes --package typescript@5.4.5 tsc -p tsconfig.typescript-minimum.json",
+    "lint": "oxlint .",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check ."
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "fast-check": "^4.9.0",
+    "oxfmt": "^0.23.0",
+    "oxlint": "^1.38.0",
+    "tsdown": "^0.19.0-beta.5",
+    "typescript": "^5.4.0",
+    "vitest": "3.2.4"
+  }
+}

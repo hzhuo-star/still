@@ -1,0 +1,91 @@
+---
+title: Result codecs
+description: Validate and transform both Result branches across RPC, persistence, queues, and server-action boundaries.
+---
+
+`Result.codec` builds a two-way boundary from [Standard Schema](https://standardschema.dev/)-compatible schemas. Zod, Valibot, ArkType, and other compliant libraries can provide the validators.
+
+## Why a codec
+
+A Result object in memory is not proof that JSON or stored data has the same shape. A codec validates both the envelope and selected payload while allowing in-memory and wire representations to differ.
+
+## Define both directions
+
+Define four named schemas at the boundary: success and error schemas for values going to the wire, and success and error schemas for values coming from the wire. Keep each schema's validation and mapping outside the codec declaration.
+
+```ts
+import { Result } from "better-result";
+
+const UserResultCodec = Result.codec({
+  serialize: {
+    ok: UserToWireSchema,
+    err: DomainErrorToWireSchema,
+  },
+  deserialize: {
+    ok: UserFromWireSchema,
+    err: DomainErrorFromWireSchema,
+  },
+});
+```
+
+The named schemas may validate identical in-memory and wire shapes or map between different representations such as `Date` and ISO text. `Result.codec` only assembles those four boundary contracts.
+
+## Serialize
+
+```ts
+const encoded = await UserResultCodec.serialize(Result.ok(user));
+// Result<SerializedResult<UserWire, ErrorWire>, ResultSerializationError>
+```
+
+The output envelope is one of:
+
+```ts
+{ status: "ok", value: okPayload }
+{ status: "error", error: errPayload }
+```
+
+A schema issue returns `ResultSerializationError` with `value` and `issues`.
+
+## Deserialize unknown input
+
+```ts
+const decoded = await UserResultCodec.deserialize(inputFromNetwork);
+// Result<User, DomainError | ResultDeserializationError>
+```
+
+An invalid envelope or payload returns `ResultDeserializationError`. Its `value` is the invalid input; schema failures also include `issues`.
+
+## Unsafe convenience methods
+
+When you own both producer and consumer and version their schemas together, the unsafe variants are often the simpler choice. A codec validation error then usually means the shared contract is broken, so the unsafe methods remove the codec-error handling layer and its associated unwrapping or translation boilerplate:
+
+```ts
+const envelope = await UserResultCodec.serializeUnsafe(Result.ok(user));
+// SerializedResult<UserWire, ErrorWire>
+
+const decoded = await UserResultCodec.deserializeUnsafe(inputFromNetwork);
+// Result<User, DomainError>
+```
+
+`serializeUnsafe` unwraps the serialization Result and panics on `ResultSerializationError`. `deserializeUnsafe` panics only on `ResultDeserializationError`; a valid serialized Err remains a decoded domain Err. Both preserve the selected schema's synchronous or asynchronous behavior.
+
+Use the safe methods for public, independently versioned, persisted, or otherwise untrusted boundaries where contract mismatch is an expected condition that the caller should handle.
+
+## Sync and async schemas
+
+Each selected schema controls whether that operation returns `Result`, `Promise<Result>`, or a union when the branch is unknown. `await` accepts both and is the simplest uniform boundary style:
+
+```ts
+const decoded = await codec.deserialize(input);
+```
+
+A schema that throws or rejects violates Standard Schema validation behavior and causes `Panic`.
+
+## Undefined payloads
+
+JSON omits properties with `undefined`. The codec accepts `{ status: "ok" }` and `{ status: "error" }`, then passes `undefined` to the selected payload schema. A void/undefined schema may accept it; other schemas return `ResultDeserializationError`.
+
+<Callout type="tip" title="Own codecs at boundaries">
+  Define a codec next to the RPC, storage, queue, or server-action boundary it protects. Avoid one
+  global codec that couples unrelated transports.
+</Callout>
